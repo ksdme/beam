@@ -9,10 +9,10 @@ import (
 
 type Engine struct {
 	lock     sync.Mutex
-	sessions map[string]*session
+	channels map[string]*channel
 }
 
-type session struct {
+type channel struct {
 	sender   *sender
 	receiver *receiver
 }
@@ -31,102 +31,117 @@ type receiver struct {
 
 func NewEngine() *Engine {
 	return &Engine{
-		sessions: make(map[string]*session),
+		channels: make(map[string]*channel),
 	}
 }
 
-func (b *Engine) getOrCreateSession(name string) *session {
-	sess, exists := b.sessions[name]
+func (e *Engine) getOrCreateChannel(name string) *channel {
+	sess, exists := e.channels[name]
 	if !exists {
-		sess = &session{}
-		b.sessions[name] = sess
+		sess = &channel{}
+		e.channels[name] = sess
 	}
 	return sess
 }
 
 // Adds a sender to a specific session if one doesn't already exist. And, returns
 // a channel that yields an exit code when the beaming is complete.
-func (b *Engine) AddSender(session string, reader io.Reader, log io.Writer) (chan int, error) {
-	b.lock.Lock()
-	defer b.lock.Unlock()
+func (e *Engine) AddSender(name string, reader io.Reader, log io.Writer) (chan int, error) {
+	e.lock.Lock()
+	defer e.lock.Unlock()
 
-	sess := b.getOrCreateSession(session)
+	channel := e.getOrCreateChannel(name)
 
-	if sess.sender != nil {
+	if channel.sender != nil {
 		return nil, fmt.Errorf("this session has an active sender")
 	}
-	sess.sender = &sender{
+	channel.sender = &sender{
 		reader: reader,
 		log:    log,
 		done:   make(chan int),
 	}
 
-	b.checkAndBeam(sess)
+	if err := e.checkAndBeam(name, channel); err != nil {
+		return nil, err
+	}
 
-	return sess.sender.done, nil
+	return channel.sender.done, nil
 }
 
 // Adds a receiver to a specific session if one doesn't already exist. And, returns
 // a channel that yields an exit code when the beaming is complete.
-func (b *Engine) AddReceiver(session string, writer io.Writer, log io.Writer) (chan int, error) {
-	b.lock.Lock()
-	defer b.lock.Unlock()
+func (e *Engine) AddReceiver(name string, writer io.Writer, log io.Writer) (chan int, error) {
+	e.lock.Lock()
+	defer e.lock.Unlock()
 
-	sess := b.getOrCreateSession(session)
+	channel := e.getOrCreateChannel(name)
 
-	if sess.receiver != nil {
+	if channel.receiver != nil {
 		return nil, fmt.Errorf("this session has an active receiver")
 	}
-	sess.receiver = &receiver{
+	channel.receiver = &receiver{
 		writer: writer,
 		log:    log,
 		done:   make(chan int),
 	}
 
-	b.checkAndBeam(sess)
+	if err := e.checkAndBeam(name, channel); err != nil {
+		return nil, err
+	}
 
-	return sess.receiver.done, nil
+	return channel.receiver.done, nil
 }
 
-func (b *Engine) checkAndBeam(session *session) {
-	if session.sender != nil && session.receiver != nil {
-		go b.beam(session)
+func (e *Engine) checkAndBeam(name string, channel *channel) error {
+	if channel.sender != nil && channel.receiver != nil {
+		go e.beam(name, channel)
 	}
+
+	return nil
 }
 
 // Basically, reader a buffer from reader and write it to receiver. This is not
 // done in parallel to keep the memory footprint low.
-func (b *Engine) beam(session *session) {
+func (e *Engine) beam(name string, channel *channel) {
+	defer e.clean(name)
+
 	for {
 		buffer := make([]byte, 64*1024)
-		n, err := session.sender.reader.Read(buffer)
+		n, err := channel.sender.reader.Read(buffer)
 		if err != nil {
 			if err == io.EOF {
-				io.WriteString(session.sender.log, "Beaming Complete\n")
-				io.WriteString(session.receiver.log, "Beaming Complete\n")
+				io.WriteString(channel.sender.log, "Beaming Complete\n")
+				io.WriteString(channel.receiver.log, "Beaming Complete\n")
 
-				session.sender.done <- 0
-				session.receiver.done <- 0
+				channel.sender.done <- 0
+				channel.receiver.done <- 0
 			} else {
 				slog.Error("sender: could not read", "err", err)
-				io.WriteString(session.sender.log, "Something went wrong while sending\n")
-				io.WriteString(session.receiver.log, "Something went wrong on the sender end\n")
+				io.WriteString(channel.sender.log, "Something went wrong while sending\n")
+				io.WriteString(channel.receiver.log, "Something went wrong on the sender end\n")
 
-				session.sender.done <- 1
-				session.receiver.done <- 1
+				channel.sender.done <- 1
+				channel.receiver.done <- 1
 			}
 			return
 		}
 
-		_, err = session.receiver.writer.Write(buffer[:n])
+		_, err = channel.receiver.writer.Write(buffer[:n])
 		if err != nil {
 			slog.Error("receiver: could not write", "err", err)
-			io.WriteString(session.receiver.log, "Something went wrong while receiving\n")
-			io.WriteString(session.sender.log, "Something went wrong on the receiver end\n")
+			io.WriteString(channel.receiver.log, "Something went wrong while receiving\n")
+			io.WriteString(channel.sender.log, "Something went wrong on the receiver end\n")
 
-			session.sender.done <- 1
-			session.receiver.done <- 1
+			channel.sender.done <- 1
+			channel.receiver.done <- 1
 			return
 		}
 	}
+}
+
+func (e *Engine) clean(channel string) {
+	e.lock.Lock()
+	defer e.lock.Unlock()
+
+	delete(e.channels, channel)
 }
