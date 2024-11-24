@@ -13,14 +13,12 @@ import (
 	"github.com/ksdme/beam/internal/config"
 )
 
-var a = beam.NewBeam()
-
-func handler(s ssh.Session) {
+func handler(s ssh.Session, engine *beam.Engine) {
 	slog.Info("connected")
 
 	switch strings.TrimSpace(s.RawCommand()) {
 	case "send":
-		done, err := a.AddSender("hello", s, s.Stderr())
+		done, err := engine.AddSender("hello", s, s.Stderr())
 		if err != nil {
 			io.WriteString(s.Stderr(), fmt.Sprintf("Could not connect to the channel: %s", err.Error()))
 			return
@@ -34,7 +32,7 @@ func handler(s ssh.Session) {
 		return
 
 	case "receive":
-		done, err := a.AddReceiver("hello", s, s.Stderr())
+		done, err := engine.AddReceiver("hello", s, s.Stderr())
 		if err != nil {
 			io.WriteString(s.Stderr(), fmt.Sprintf("Could not connect to the channel: %s", err.Error()))
 			return
@@ -54,13 +52,15 @@ func handler(s ssh.Session) {
 }
 
 func run() error {
+	engine := beam.NewEngine()
+
 	config, err := config.LoadConfigFromEnv()
 	if err != nil {
 		return errors.Join(fmt.Errorf("could not load configuration"), err)
 	}
 
 	slog.Info("starting listening", "port", config.Addr)
-	err = ssh.ListenAndServe(config.Addr, handler, ssh.HostKeyFile(config.HostKeyFile))
+	err = ssh.ListenAndServe(config.Addr, func(s ssh.Session) { handler(s, engine) }, ssh.HostKeyFile(config.HostKeyFile))
 	if err != nil {
 		return errors.Join(fmt.Errorf("could not serve"), err)
 	}

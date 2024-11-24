@@ -7,7 +7,7 @@ import (
 	"sync"
 )
 
-type Beam struct {
+type Engine struct {
 	lock     sync.Mutex
 	sessions map[string]*session
 }
@@ -29,13 +29,13 @@ type receiver struct {
 	done   chan int
 }
 
-func NewBeam() Beam {
-	return Beam{
+func NewEngine() *Engine {
+	return &Engine{
 		sessions: make(map[string]*session),
 	}
 }
 
-func (b *Beam) getOrCreateSession(name string) *session {
+func (b *Engine) getOrCreateSession(name string) *session {
 	sess, exists := b.sessions[name]
 	if !exists {
 		sess = &session{}
@@ -46,7 +46,7 @@ func (b *Beam) getOrCreateSession(name string) *session {
 
 // Adds a sender to a specific session if one doesn't already exist. And, returns
 // a channel that yields an exit code when the beaming is complete.
-func (b *Beam) AddSender(session string, reader io.Reader, log io.Writer) (chan int, error) {
+func (b *Engine) AddSender(session string, reader io.Reader, log io.Writer) (chan int, error) {
 	b.lock.Lock()
 	defer b.lock.Unlock()
 
@@ -68,7 +68,7 @@ func (b *Beam) AddSender(session string, reader io.Reader, log io.Writer) (chan 
 
 // Adds a receiver to a specific session if one doesn't already exist. And, returns
 // a channel that yields an exit code when the beaming is complete.
-func (b *Beam) AddReceiver(session string, writer io.Writer, log io.Writer) (chan int, error) {
+func (b *Engine) AddReceiver(session string, writer io.Writer, log io.Writer) (chan int, error) {
 	b.lock.Lock()
 	defer b.lock.Unlock()
 
@@ -88,7 +88,7 @@ func (b *Beam) AddReceiver(session string, writer io.Writer, log io.Writer) (cha
 	return sess.receiver.done, nil
 }
 
-func (b *Beam) checkAndBeam(session *session) {
+func (b *Engine) checkAndBeam(session *session) {
 	if session.sender != nil && session.receiver != nil {
 		go b.beam(session)
 	}
@@ -96,7 +96,7 @@ func (b *Beam) checkAndBeam(session *session) {
 
 // Basically, reader a buffer from reader and write it to receiver. This is not
 // done in parallel to keep the memory footprint low.
-func (b *Beam) beam(session *session) {
+func (b *Engine) beam(session *session) {
 	for {
 		buffer := make([]byte, 64*1024)
 		n, err := session.sender.reader.Read(buffer)
