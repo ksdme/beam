@@ -15,6 +15,7 @@ import (
 
 func handler(s ssh.Session, engine *beam.Engine) {
 	slog.Info("connected")
+	defer fmt.Println("disconnect")
 
 	switch strings.TrimSpace(s.RawCommand()) {
 	case "send":

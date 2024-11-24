@@ -53,7 +53,7 @@ func (e *Engine) AddSender(name string, reader io.Reader, log io.Writer) (chan i
 	channel := e.getOrCreateChannel(name)
 
 	if channel.sender != nil {
-		return nil, fmt.Errorf("this session has an active sender")
+		return nil, fmt.Errorf("this session has another active sender")
 	}
 	channel.sender = &sender{
 		reader: reader,
@@ -77,7 +77,7 @@ func (e *Engine) AddReceiver(name string, writer io.Writer, log io.Writer) (chan
 	channel := e.getOrCreateChannel(name)
 
 	if channel.receiver != nil {
-		return nil, fmt.Errorf("this session has an active receiver")
+		return nil, fmt.Errorf("this session has another active receiver")
 	}
 	channel.receiver = &receiver{
 		writer: writer,
@@ -105,13 +105,19 @@ func (e *Engine) checkAndBeam(name string, channel *channel) error {
 func (e *Engine) beam(name string, channel *channel) {
 	defer e.clean(name)
 
+	sent := uint64(0)
+	received := uint64(0)
+	lastSentReported := sent
+	lastReceivedReported := received
+	reportSize := uint64(5 * 1024 * 1024)
+
 	for {
 		buffer := make([]byte, 64*1024)
-		n, err := channel.sender.reader.Read(buffer)
+		s, err := channel.sender.reader.Read(buffer)
 		if err != nil {
 			if err == io.EOF {
-				io.WriteString(channel.sender.log, "Beaming Complete\n")
-				io.WriteString(channel.receiver.log, "Beaming Complete\n")
+				io.WriteString(channel.sender.log, fmt.Sprintf("Beaming Complete (%s)\n", humanize.Bytes(sent)))
+				io.WriteString(channel.receiver.log, fmt.Sprintf("Beaming Complete (%s)\n", humanize.Bytes(received)))
 
 				channel.sender.done <- 0
 				channel.receiver.done <- 0
@@ -125,8 +131,13 @@ func (e *Engine) beam(name string, channel *channel) {
 			}
 			return
 		}
+		sent += uint64(s)
+		if sent-lastSentReported >= reportSize {
+			io.WriteString(channel.sender.log, fmt.Sprintf("# Uploaded %s\n", humanize.Bytes(sent)))
+			lastSentReported = sent
+		}
 
-		_, err = channel.receiver.writer.Write(buffer[:n])
+		r, err := channel.receiver.writer.Write(buffer[:s])
 		if err != nil {
 			slog.Error("receiver: could not write", "err", err)
 			io.WriteString(channel.receiver.log, "Something went wrong while receiving\n")
@@ -135,6 +146,11 @@ func (e *Engine) beam(name string, channel *channel) {
 			channel.sender.done <- 1
 			channel.receiver.done <- 1
 			return
+		}
+		received += uint64(r)
+		if received-lastReceivedReported >= reportSize {
+			io.WriteString(channel.receiver.log, fmt.Sprintf("# Downloaded %s\n", humanize.Bytes(received)))
+			lastReceivedReported = received
 		}
 	}
 }
