@@ -6,15 +6,51 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"strings"
 
 	"github.com/gliderlabs/ssh"
+	"github.com/ksdme/beam/internal/beam"
 	"github.com/ksdme/beam/internal/config"
 )
 
+var a = beam.NewBeam()
+
 func handler(s ssh.Session) {
 	slog.Info("connected")
-	io.WriteString(s, "Hello World\n")
-	slog.Info("connection ended")
+
+	switch strings.TrimSpace(s.RawCommand()) {
+	case "send":
+		done, err := a.AddSender("hello", s, s.Stderr())
+		if err != nil {
+			io.WriteString(s.Stderr(), fmt.Sprintf("Could not connect to the channel: %s", err.Error()))
+			return
+		}
+
+		io.WriteString(s.Stderr(), "Connected to hello channel\n")
+		if exit := <-done; exit != 0 {
+			s.Exit(exit)
+		}
+
+		return
+
+	case "receive":
+		done, err := a.AddReceiver("hello", s, s.Stderr())
+		if err != nil {
+			io.WriteString(s.Stderr(), fmt.Sprintf("Could not connect to the channel: %s", err.Error()))
+			return
+		}
+
+		io.WriteString(s.Stderr(), "Connected to hello channel\n")
+		if exit := <-done; exit != 0 {
+			s.Exit(exit)
+		}
+
+		return
+
+	default:
+		io.WriteString(s.Stderr(), "Unknown command")
+		return
+	}
 }
 
 func run() error {
