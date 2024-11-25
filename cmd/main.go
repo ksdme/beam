@@ -15,9 +15,8 @@ import (
 // - Use Public Key based channel names
 // - Support custom channel names
 // - Add a progress meter.
-// - Add help message on how to connect.
-// - Add quiet mode
 // - Check what happens when the connection is interrupted during a transfer.
+// - Configurable buffer size (min, max)
 func handler(s ssh.Session, engine *beam.Engine) {
 	// Calling s.Exit does not seem to cancel the context, so, we need to manually
 	// store that intent and return early.
@@ -74,7 +73,15 @@ func handler(s ssh.Session, engine *beam.Engine) {
 			return
 		}
 		if !args.Quiet {
-			io.WriteString(s.Stderr(), fmt.Sprintf(">> connected to %s as sender\n", name))
+			io.WriteString(s.Stderr(), fmt.Sprintf("<• connected to %s as sender\n", name))
+
+			if channel.Receiver == nil {
+				io.WriteString(
+					s.Stderr(),
+					"To receive this beam run: ssh beam.ssh.camp receive hello\n"+
+						"You can pipe the output of that command or redirect it to a file to save it.\n\n",
+				)
+			}
 		}
 
 		// Block until beamer is done or the connection is aborted.
@@ -82,7 +89,10 @@ func handler(s ssh.Session, engine *beam.Engine) {
 		case <-s.Context().Done():
 			channel.Quit <- s.Context().Err()
 
-		case <-channel.Sender.Done:
+		case err := <-channel.Sender.Done:
+			if err != nil && !args.Quiet {
+				io.WriteString(s.Stderr(), fmt.Sprintln(err.Error()))
+			}
 		}
 
 	case args.Receive != nil:
@@ -96,7 +106,14 @@ func handler(s ssh.Session, engine *beam.Engine) {
 			return
 		}
 		if !args.Quiet {
-			io.WriteString(s.Stderr(), fmt.Sprintf("<< connected to %s as receiver\n", name))
+			io.WriteString(s.Stderr(), fmt.Sprintf("•> connected to %s as receiver\n", name))
+
+			if channel.Sender == nil {
+				io.WriteString(
+					s.Stderr(),
+					"To send data on this beam pipe it into: ssh beam.ssh.camp send hello\n\n",
+				)
+			}
 		}
 
 		// Block until beamer is done or the connection is aborted.
@@ -104,7 +121,10 @@ func handler(s ssh.Session, engine *beam.Engine) {
 		case <-s.Context().Done():
 			channel.Quit <- s.Context().Err()
 
-		case <-channel.Receiver.Done:
+		case err := <-channel.Receiver.Done:
+			if err != nil && !args.Quiet {
+				io.WriteString(s.Stderr(), fmt.Sprintln(err.Error()))
+			}
 		}
 	}
 }
