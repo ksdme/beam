@@ -14,19 +14,22 @@ import (
 )
 
 func handler(s ssh.Session, engine *beam.Engine) {
-	slog.Debug("connected")
-	defer slog.Debug("disconnected")
+	name := "hello"
 
 	switch strings.TrimSpace(s.RawCommand()) {
 	case "send":
-		channel, err := engine.AddSender("hello", s, s.Stderr())
+		slog.Debug("sender connected", "channel", name)
+		defer slog.Debug("sender disconnected", "channel", name)
+
+		channel, err := engine.AddSender(name, s, s.Stderr())
 		if err != nil {
 			err = errors.Join(fmt.Errorf("could not connect to channel"), err)
 			io.WriteString(s.Stderr(), fmt.Sprintln(err.Error()))
 			return
 		}
-		io.WriteString(s.Stderr(), "connected to hello channel\n")
+		io.WriteString(s.Stderr(), fmt.Sprintf("connected to %s channel as sender\n", name))
 
+		// Block until the beamer is done or the connection is aborted.
 		select {
 		case <-s.Context().Done():
 			channel.Quit <- s.Context().Err()
@@ -35,14 +38,18 @@ func handler(s ssh.Session, engine *beam.Engine) {
 		}
 
 	case "receive":
-		channel, err := engine.AddReceiver("hello", s, s.Stderr())
+		slog.Debug("receiver connected", "channel", name)
+		defer slog.Debug("receiver disconnected", "channel", name)
+
+		channel, err := engine.AddReceiver(name, s, s.Stderr())
 		if err != nil {
 			err = errors.Join(fmt.Errorf("could not connect to channel"), err)
 			io.WriteString(s.Stderr(), fmt.Sprintln(err.Error()))
 			return
 		}
-		io.WriteString(s.Stderr(), "connected to hello channel\n")
+		io.WriteString(s.Stderr(), fmt.Sprintf("connected to %s channel\n", name))
 
+		// Block until the beamer is done or the connection is aborted.
 		select {
 		case <-s.Context().Done():
 			channel.Quit <- s.Context().Err()
