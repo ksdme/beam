@@ -13,20 +13,22 @@ type Engine struct {
 }
 
 type channel struct {
-	sender   *sender
-	receiver *receiver
+	ready    chan bool
+	Quit     chan error
+	Sender   *sender
+	Receiver *receiver
 }
 
 type sender struct {
 	reader io.Reader
 	log    io.Writer
-	done   chan int
+	Done   chan error
 }
 
 type receiver struct {
 	writer io.Writer
 	log    io.Writer
-	done   chan int
+	Done   chan error
 }
 
 func NewEngine() *Engine {
@@ -35,127 +37,138 @@ func NewEngine() *Engine {
 	}
 }
 
-func (e *Engine) getOrCreateChannel(name string) *channel {
-	sess, exists := e.channels[name]
+func (e *Engine) findOrCreateChannel(name string) *channel {
+	ch, exists := e.channels[name]
 	if !exists {
-		sess = &channel{}
-		e.channels[name] = sess
+		ch = &channel{
+			Quit: make(chan error),
+		}
+		e.channels[name] = ch
 	}
-	return sess
+
+	return ch
+}
+
+func (e *Engine) createBeam(name string, channel *channel) {
+	if channel.ready == nil {
+		channel.ready = make(chan bool)
+		go e.beam(name, channel)
+	}
+
+	if channel.Sender != nil && channel.Receiver != nil {
+		channel.ready <- true
+	}
 }
 
 // Adds a sender to a specific session if one doesn't already exist. And, returns
 // a channel that yields an exit code when the beaming is complete.
-func (e *Engine) AddSender(name string, reader io.Reader, log io.Writer) (chan int, error) {
+func (e *Engine) AddSender(name string, reader io.Reader, log io.Writer) (*channel, error) {
 	e.lock.Lock()
 	defer e.lock.Unlock()
 
-	channel := e.getOrCreateChannel(name)
-
-	if channel.sender != nil {
-		return nil, fmt.Errorf("this session has another active sender")
+	channel := e.findOrCreateChannel(name)
+	if channel.Sender != nil {
+		return nil, fmt.Errorf("session has another active sender")
 	}
-	channel.sender = &sender{
+
+	channel.Sender = &sender{
 		reader: reader,
 		log:    log,
-		done:   make(chan int),
+		Done:   make(chan error),
 	}
+	e.createBeam(name, channel)
 
-	if err := e.checkAndBeam(name, channel); err != nil {
-		return nil, err
-	}
-
-	return channel.sender.done, nil
+	return channel, nil
 }
 
 // Adds a receiver to a specific session if one doesn't already exist. And, returns
 // a channel that yields an exit code when the beaming is complete.
-func (e *Engine) AddReceiver(name string, writer io.Writer, log io.Writer) (chan int, error) {
+func (e *Engine) AddReceiver(name string, writer io.Writer, log io.Writer) (*channel, error) {
 	e.lock.Lock()
 	defer e.lock.Unlock()
 
-	channel := e.getOrCreateChannel(name)
-
-	if channel.receiver != nil {
-		return nil, fmt.Errorf("this session has another active receiver")
+	channel := e.findOrCreateChannel(name)
+	if channel.Receiver != nil {
+		return nil, fmt.Errorf("session has another active receiver")
 	}
-	channel.receiver = &receiver{
+
+	channel.Receiver = &receiver{
 		writer: writer,
 		log:    log,
-		done:   make(chan int),
+		Done:   make(chan error),
 	}
+	e.createBeam(name, channel)
 
-	if err := e.checkAndBeam(name, channel); err != nil {
-		return nil, err
-	}
-
-	return channel.receiver.done, nil
+	return channel, nil
 }
 
-func (e *Engine) checkAndBeam(name string, channel *channel) error {
-	if channel.sender != nil && channel.receiver != nil {
-		go e.beam(name, channel)
-	}
-
-	return nil
-}
-
-// Basically, reader a buffer from reader and write it to receiver. This is not
-// done in parallel to keep the memory footprint low.
 func (e *Engine) beam(name string, channel *channel) {
+	slog.Debug("started up beamer", "channel", name)
+	defer slog.Debug("closing up beamer", "channel", name)
 	defer e.clean(name)
 
-	sent := uint64(0)
-	received := uint64(0)
-	lastSentReported := sent
-	lastReceivedReported := received
-	reportSize := uint64(5 * 1024 * 1024)
-
-	for {
-		buffer := make([]byte, 64*1024)
-		s, err := channel.sender.reader.Read(buffer)
-		if err != nil {
-			if err == io.EOF {
-				io.WriteString(channel.sender.log, fmt.Sprintf("Beaming Complete (%s)\n", humanize.Bytes(sent)))
-				io.WriteString(channel.receiver.log, fmt.Sprintf("Beaming Complete (%s)\n", humanize.Bytes(received)))
-
-				channel.sender.done <- 0
-				channel.receiver.done <- 0
-			} else {
-				slog.Error("sender: could not read", "err", err)
-				io.WriteString(channel.sender.log, "Something went wrong while sending\n")
-				io.WriteString(channel.receiver.log, "Something went wrong on the sender end\n")
-
-				channel.sender.done <- 1
-				channel.receiver.done <- 1
+	// Send a done signal to both the participant channels in a non-blocking
+	// manner and, only if they exist.
+	done := func(s, r error) {
+		if channel.Sender != nil {
+			select {
+			case channel.Sender.Done <- s:
+			default:
 			}
-			return
-		}
-		sent += uint64(s)
-		if sent-lastSentReported >= reportSize {
-			io.WriteString(channel.sender.log, fmt.Sprintf("# Uploaded %s\n", humanize.Bytes(sent)))
-			lastSentReported = sent
 		}
 
-		r, err := channel.receiver.writer.Write(buffer[:s])
-		if err != nil {
-			slog.Error("receiver: could not write", "err", err)
-			io.WriteString(channel.receiver.log, "Something went wrong while receiving\n")
-			io.WriteString(channel.sender.log, "Something went wrong on the receiver end\n")
-
-			channel.sender.done <- 1
-			channel.receiver.done <- 1
-			return
+		if channel.Receiver != nil {
+			select {
+			case channel.Receiver.Done <- r:
+			default:
+			}
 		}
-		received += uint64(r)
-		if received-lastReceivedReported >= reportSize {
-			io.WriteString(channel.receiver.log, fmt.Sprintf("# Downloaded %s\n", humanize.Bytes(received)))
-			lastReceivedReported = received
+	}
+
+	// This is a blocking read that will only run when the entire channel is ready.
+	// If one of the participants goes away while waiting, this worker will die.
+	select {
+	case <-channel.Quit:
+		done(nil, nil)
+		return
+
+	case <-channel.ready:
+	}
+
+	// Run until the termination of the worker is explicitly requested (mostly when
+	// either participant unexpectedly goes away) or untilt the transfer is complete.
+	for {
+		select {
+		case <-channel.Quit:
+			err := fmt.Errorf("the connection was interrupted")
+			done(err, err)
+			return
+
+		default:
+			buffer := make([]byte, 64*1024)
+			s, err := channel.Sender.reader.Read(buffer)
+			if err != nil {
+				if err == io.EOF {
+					done(nil, nil)
+					return
+				}
+
+				done(err, err)
+				return
+			}
+
+			_, err = channel.Receiver.writer.Write(buffer[:s])
+			if err != nil {
+				done(err, err)
+				return
+			}
 		}
 	}
 }
 
 func (e *Engine) clean(channel string) {
+	slog.Debug("cleaning up", "channel", channel)
+
 	e.lock.Lock()
 	defer e.lock.Unlock()
 

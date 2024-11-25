@@ -14,40 +14,44 @@ import (
 )
 
 func handler(s ssh.Session, engine *beam.Engine) {
-	slog.Info("connected")
-	defer fmt.Println("disconnect")
+	slog.Debug("connected")
+	defer slog.Debug("disconnected")
 
 	switch strings.TrimSpace(s.RawCommand()) {
 	case "send":
-		done, err := engine.AddSender("hello", s, s.Stderr())
+		channel, err := engine.AddSender("hello", s, s.Stderr())
 		if err != nil {
-			io.WriteString(s.Stderr(), fmt.Sprintf("Could not connect to the channel: %s", err.Error()))
+			err = errors.Join(fmt.Errorf("could not connect to channel"), err)
+			io.WriteString(s.Stderr(), fmt.Sprintln(err.Error()))
 			return
 		}
+		io.WriteString(s.Stderr(), "connected to hello channel\n")
 
-		io.WriteString(s.Stderr(), "Connected to hello channel\n")
-		if exit := <-done; exit != 0 {
-			s.Exit(exit)
+		select {
+		case <-s.Context().Done():
+			channel.Quit <- s.Context().Err()
+
+		case <-channel.Sender.Done:
 		}
-
-		return
 
 	case "receive":
-		done, err := engine.AddReceiver("hello", s, s.Stderr())
+		channel, err := engine.AddReceiver("hello", s, s.Stderr())
 		if err != nil {
-			io.WriteString(s.Stderr(), fmt.Sprintf("Could not connect to the channel: %s", err.Error()))
+			err = errors.Join(fmt.Errorf("could not connect to channel"), err)
+			io.WriteString(s.Stderr(), fmt.Sprintln(err.Error()))
 			return
 		}
+		io.WriteString(s.Stderr(), "connected to hello channel\n")
 
-		io.WriteString(s.Stderr(), "Connected to hello channel\n")
-		if exit := <-done; exit != 0 {
-			s.Exit(exit)
+		select {
+		case <-s.Context().Done():
+			channel.Quit <- s.Context().Err()
+
+		case <-channel.Receiver.Done:
 		}
 
-		return
-
 	default:
-		io.WriteString(s.Stderr(), "Unknown command")
+		io.WriteString(s.Stderr(), "unknown command")
 		return
 	}
 }
@@ -70,6 +74,8 @@ func run() error {
 }
 
 func main() {
+	slog.SetLogLoggerLevel(slog.LevelDebug)
+
 	err := run()
 	if err != nil {
 		slog.Error(err.Error())
