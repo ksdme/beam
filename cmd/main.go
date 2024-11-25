@@ -1,23 +1,25 @@
 package main
 
 import (
+	"crypto/sha1"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
+	"regexp"
+	"strings"
 
 	"github.com/alexflint/go-arg"
+	"github.com/btcsuite/btcutil/base58"
 	"github.com/gliderlabs/ssh"
 	"github.com/ksdme/beam/internal/beam"
 	"github.com/ksdme/beam/internal/config"
 )
 
-// - Use Public Key based channel names
-// - Support custom channel names
 // - Add a progress meter.
 // - Check what happens when the connection is interrupted during a transfer.
 // - Configurable buffer size (min, max)
-func handler(s ssh.Session, engine *beam.Engine) {
+func handler(config *config.Config, engine *beam.Engine, s ssh.Session) {
 	// Calling s.Exit does not seem to cancel the context, so, we need to manually
 	// store that intent and return early.
 	exited := false
@@ -59,10 +61,16 @@ func handler(s ssh.Session, engine *beam.Engine) {
 		return
 	}
 
-	// Handle commands.
-	name := "hello"
 	switch {
 	case args.Send != nil:
+		name, err := makeChannel(config, args.Send.Channel, s.PublicKey())
+		if err != nil {
+			slog.Debug("could not determine channel name", "err", err)
+			err = fmt.Errorf("could not connect to channel: %w", err)
+			io.WriteString(s.Stderr(), fmt.Sprintln(err.Error()))
+			return
+		}
+
 		slog.Debug("sender connected", "channel", name)
 		defer slog.Debug("sender disconnected", "channel", name)
 
@@ -78,8 +86,12 @@ func handler(s ssh.Session, engine *beam.Engine) {
 			if channel.Receiver == nil {
 				io.WriteString(
 					s.Stderr(),
-					"To receive this beam run: ssh beam.ssh.camp receive hello\n"+
-						"You can pipe the output of that command or redirect it to a file to save it.\n\n",
+					fmt.Sprintf(
+						"To receive this beam run: ssh %s receive %s\n"+
+							"You can pipe the output of that command or redirect it to a file to save it.\n\n",
+						config.Host,
+						name,
+					),
 				)
 			}
 		}
@@ -96,6 +108,14 @@ func handler(s ssh.Session, engine *beam.Engine) {
 		}
 
 	case args.Receive != nil:
+		name, err := makeChannel(config, args.Receive.Channel, s.PublicKey())
+		if err != nil {
+			slog.Debug("could not determine channel name", "err", err)
+			err = fmt.Errorf("could not connect to channel: %w", err)
+			io.WriteString(s.Stderr(), fmt.Sprintln(err.Error()))
+			return
+		}
+
 		slog.Debug("receiver connected", "channel", name)
 		defer slog.Debug("receiver disconnected", "channel", name)
 
@@ -111,7 +131,7 @@ func handler(s ssh.Session, engine *beam.Engine) {
 			if channel.Sender == nil {
 				io.WriteString(
 					s.Stderr(),
-					"To send data on this beam pipe it into: ssh beam.ssh.camp send hello\n\n",
+					fmt.Sprintf("To send data on this beam pipe it into: ssh %s send %s\n\n", config.Host, name),
 				)
 			}
 		}
@@ -129,6 +149,30 @@ func handler(s ssh.Session, engine *beam.Engine) {
 	}
 }
 
+// Select the name of the channel based on the explicit option or an implicit
+// channel based on the public key.
+func makeChannel(config *config.Config, name string, key ssh.PublicKey) (string, error) {
+	name = strings.TrimSpace(name)
+	if name != "" {
+		if len(name) < 6 {
+			return "", fmt.Errorf("channel names needs to between 6 to 64 characters long")
+		}
+		if len(name) > 64 {
+			return "", fmt.Errorf("channel names needs to between 6 to 64 characters long")
+		}
+		if ok, _ := regexp.MatchString(`^\w+$`, name); !ok {
+			return "", fmt.Errorf("channel name can only contain lowercase, uppercase letters, digits and underscores")
+		}
+		return name, nil
+	}
+
+	h := sha1.New()
+	h.Write(key.Marshal())
+	h.Write([]byte(config.Secret))
+	digest := h.Sum(nil)
+	return base58.Encode(digest), nil
+}
+
 func run() error {
 	engine := beam.NewEngine()
 
@@ -137,10 +181,10 @@ func run() error {
 		return fmt.Errorf("could not load configuration: %w", err)
 	}
 
-	slog.Info("starting listening", "port", config.Addr)
+	slog.Info("starting listening", "port", config.BindAddr)
 	err = ssh.ListenAndServe(
-		config.Addr,
-		func(s ssh.Session) { handler(s, engine) },
+		config.BindAddr,
+		func(s ssh.Session) { handler(config, engine, s) },
 		ssh.HostKeyFile(config.HostKeyFile),
 		ssh.PasswordAuth(func(ctx ssh.Context, password string) bool { return false }),
 		ssh.PublicKeyAuth(func(ctx ssh.Context, key ssh.PublicKey) bool { return true }),

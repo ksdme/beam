@@ -7,8 +7,9 @@ import (
 
 type Config struct {
 	Secret      string
-	Addr        string
+	BindAddr    string
 	HostKeyFile string
+	Host        string
 }
 
 func LoadConfigFromEnv() (*Config, error) {
@@ -17,7 +18,7 @@ func LoadConfigFromEnv() (*Config, error) {
 		return nil, fmt.Errorf("BEAM_SECRET missing")
 	}
 
-	addr := os.Getenv("BEAM_ADDR")
+	addr := os.Getenv("BEAM_BIND_ADDR")
 	if addr == "" {
 		addr = ":2222"
 	}
@@ -27,9 +28,15 @@ func LoadConfigFromEnv() (*Config, error) {
 		return nil, fmt.Errorf("BEAM_HOST_KEY_FILE missing")
 	}
 
+	host := os.Getenv("BEAM_HOST")
+	if host == "" {
+		host = "beam.ssh.camp"
+	}
+
 	return &Config{
 		Secret:      secret,
-		Addr:        addr,
+		BindAddr:    addr,
 		HostKeyFile: key,
+		Host:        host,
 	}, nil
 }
