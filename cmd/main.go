@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -23,7 +22,7 @@ func handler(s ssh.Session, engine *beam.Engine) {
 
 		channel, err := engine.AddSender(name, s, s.Stderr())
 		if err != nil {
-			err = errors.Join(fmt.Errorf("could not connect to channel"), err)
+			err = fmt.Errorf("could not connect to channel: %w", err)
 			io.WriteString(s.Stderr(), fmt.Sprintln(err.Error()))
 			return
 		}
@@ -43,7 +42,7 @@ func handler(s ssh.Session, engine *beam.Engine) {
 
 		channel, err := engine.AddReceiver(name, s, s.Stderr())
 		if err != nil {
-			err = errors.Join(fmt.Errorf("could not connect to channel"), err)
+			err = fmt.Errorf("could not connect to channel: %w", err)
 			io.WriteString(s.Stderr(), fmt.Sprintln(err.Error()))
 			return
 		}
@@ -68,13 +67,13 @@ func run() error {
 
 	config, err := config.LoadConfigFromEnv()
 	if err != nil {
-		return errors.Join(fmt.Errorf("could not load configuration"), err)
+		return fmt.Errorf("could not load configuration: %w", err)
 	}
 
 	slog.Info("starting listening", "port", config.Addr)
 	err = ssh.ListenAndServe(config.Addr, func(s ssh.Session) { handler(s, engine) }, ssh.HostKeyFile(config.HostKeyFile))
 	if err != nil {
-		return errors.Join(fmt.Errorf("could not serve"), err)
+		return fmt.Errorf("could not start server: %w", err)
 	}
 
 	return nil

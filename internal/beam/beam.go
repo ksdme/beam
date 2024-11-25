@@ -49,7 +49,7 @@ func (e *Engine) findOrCreateChannel(name string) *channel {
 	return ch
 }
 
-func (e *Engine) createBeam(name string, channel *channel) {
+func (e *Engine) createBeamer(name string, channel *channel) {
 	if channel.ready == nil {
 		channel.ready = make(chan bool)
 		go e.beam(name, channel)
@@ -76,7 +76,7 @@ func (e *Engine) AddSender(name string, reader io.Reader, log io.Writer) (*chann
 		log:    log,
 		Done:   make(chan error),
 	}
-	e.createBeam(name, channel)
+	e.createBeamer(name, channel)
 
 	return channel, nil
 }
@@ -97,7 +97,7 @@ func (e *Engine) AddReceiver(name string, writer io.Writer, log io.Writer) (*cha
 		log:    log,
 		Done:   make(chan error),
 	}
-	e.createBeam(name, channel)
+	e.createBeamer(name, channel)
 
 	return channel, nil
 }
@@ -140,7 +140,7 @@ func (e *Engine) beam(name string, channel *channel) {
 	for {
 		select {
 		case <-channel.Quit:
-			err := fmt.Errorf("the connection was interrupted")
+			err := fmt.Errorf("connection interrupted")
 			done(err, err)
 			return
 
@@ -153,13 +153,15 @@ func (e *Engine) beam(name string, channel *channel) {
 					return
 				}
 
-				done(err, err)
+				slog.Info("err reading from sender", "channel", name, "err", err)
+				done(fmt.Errorf("error uploading"), fmt.Errorf("error on the sender end"))
 				return
 			}
 
 			_, err = channel.Receiver.writer.Write(buffer[:s])
 			if err != nil {
-				done(err, err)
+				slog.Info("err writing to receiver", "channel", name, "err", err)
+				done(fmt.Errorf("error on the receiver end"), fmt.Errorf("error downloading"))
 				return
 			}
 		}
