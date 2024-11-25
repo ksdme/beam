@@ -138,7 +138,13 @@ func run() error {
 	}
 
 	slog.Info("starting listening", "port", config.Addr)
-	err = ssh.ListenAndServe(config.Addr, func(s ssh.Session) { handler(s, engine) }, ssh.HostKeyFile(config.HostKeyFile))
+	err = ssh.ListenAndServe(
+		config.Addr,
+		func(s ssh.Session) { handler(s, engine) },
+		ssh.HostKeyFile(config.HostKeyFile),
+		ssh.PasswordAuth(func(ctx ssh.Context, password string) bool { return false }),
+		ssh.PublicKeyAuth(func(ctx ssh.Context, key ssh.PublicKey) bool { return true }),
+	)
 	if err != nil {
 		return fmt.Errorf("could not start server: %w", err)
 	}
