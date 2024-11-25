@@ -5,18 +5,65 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"strings"
 
+	"github.com/alexflint/go-arg"
 	"github.com/gliderlabs/ssh"
 	"github.com/ksdme/beam/internal/beam"
 	"github.com/ksdme/beam/internal/config"
 )
 
+// - Use Public Key based channel names
+// - Support custom channel names
+// - Add a progress meter.
+// - Add help message on how to connect.
+// - Add quiet mode
+// - Check what happens when the connection is interrupted during a transfer.
 func handler(s ssh.Session, engine *beam.Engine) {
-	name := "hello"
+	// Calling s.Exit does not seem to cancel the context, so, we need to manually
+	// store that intent and return early.
+	exited := false
+	exit := func(i int) {
+		s.Exit(i)
+	}
 
-	switch strings.TrimSpace(s.RawCommand()) {
-	case "send":
+	// Parse the command passed.
+	type role struct {
+		Channel string `arg:"positional"`
+	}
+	var args struct {
+		Quiet   bool
+		Send    *role `arg:"subcommand:send"`
+		Receive *role `arg:"subcommand:receive"`
+	}
+
+	parser, err := arg.NewParser(arg.Config{
+		IgnoreEnv:     true,
+		IgnoreDefault: true,
+		Program:       "beam",
+		Out:           s.Stderr(),
+		Exit:          exit,
+	}, &args)
+	if err != nil {
+		slog.Error("could not initialize arg parser", "err", err)
+		io.WriteString(s.Stderr(), fmt.Sprintln("internal error"))
+		return
+	}
+
+	parser.MustParse(s.Command())
+	if exited {
+		return
+	}
+	if parser.Subcommand() == nil {
+		parser.Fail("missing subcommand")
+	}
+	if exited {
+		return
+	}
+
+	// Handle commands.
+	name := "hello"
+	switch {
+	case args.Send != nil:
 		slog.Debug("sender connected", "channel", name)
 		defer slog.Debug("sender disconnected", "channel", name)
 
@@ -26,9 +73,11 @@ func handler(s ssh.Session, engine *beam.Engine) {
 			io.WriteString(s.Stderr(), fmt.Sprintln(err.Error()))
 			return
 		}
-		io.WriteString(s.Stderr(), fmt.Sprintf("connected to %s channel as sender\n", name))
+		if !args.Quiet {
+			io.WriteString(s.Stderr(), fmt.Sprintf(">> connected to %s as sender\n", name))
+		}
 
-		// Block until the beamer is done or the connection is aborted.
+		// Block until beamer is done or the connection is aborted.
 		select {
 		case <-s.Context().Done():
 			channel.Quit <- s.Context().Err()
@@ -36,7 +85,7 @@ func handler(s ssh.Session, engine *beam.Engine) {
 		case <-channel.Sender.Done:
 		}
 
-	case "receive":
+	case args.Receive != nil:
 		slog.Debug("receiver connected", "channel", name)
 		defer slog.Debug("receiver disconnected", "channel", name)
 
@@ -46,19 +95,17 @@ func handler(s ssh.Session, engine *beam.Engine) {
 			io.WriteString(s.Stderr(), fmt.Sprintln(err.Error()))
 			return
 		}
-		io.WriteString(s.Stderr(), fmt.Sprintf("connected to %s channel\n", name))
+		if !args.Quiet {
+			io.WriteString(s.Stderr(), fmt.Sprintf("<< connected to %s as receiver\n", name))
+		}
 
-		// Block until the beamer is done or the connection is aborted.
+		// Block until beamer is done or the connection is aborted.
 		select {
 		case <-s.Context().Done():
 			channel.Quit <- s.Context().Err()
 
 		case <-channel.Receiver.Done:
 		}
-
-	default:
-		io.WriteString(s.Stderr(), "unknown command")
-		return
 	}
 }
 
