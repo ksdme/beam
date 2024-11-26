@@ -18,7 +18,7 @@ import (
 
 // - Add a progress meter.
 // - Check what happens when the connection is interrupted during a transfer.
-// - Configurable buffer size (min, max)
+// - Authorized Keys
 func handler(config *config.Config, engine *beam.Engine, s ssh.Session) {
 	// Calling s.Exit does not seem to cancel the context, so, we need to manually
 	// store that intent and return early.
@@ -28,18 +28,22 @@ func handler(config *config.Config, engine *beam.Engine, s ssh.Session) {
 	}
 
 	// Parse the command passed.
-	type role struct {
+	type send struct {
+		BufferSize int    `arg:"--buffer-size,-b" default:"64" help:"buffer size in kB (between 1 and 64)"`
+		Channel    string `arg:"positional"`
+	}
+	type receive struct {
 		Channel string `arg:"positional"`
 	}
 	var args struct {
 		Quiet   bool
-		Send    *role `arg:"subcommand:send"`
-		Receive *role `arg:"subcommand:receive"`
+		Send    *send    `arg:"subcommand:send"`
+		Receive *receive `arg:"subcommand:receive"`
 	}
 
 	parser, err := arg.NewParser(arg.Config{
 		IgnoreEnv:     true,
-		IgnoreDefault: true,
+		IgnoreDefault: false,
 		Program:       "beam",
 		Out:           s.Stderr(),
 		Exit:          exit,
@@ -56,6 +60,15 @@ func handler(config *config.Config, engine *beam.Engine, s ssh.Session) {
 	}
 	if parser.Subcommand() == nil {
 		parser.Fail("missing subcommand")
+	}
+	if args.Send != nil {
+		if args.Send.BufferSize < 1 {
+			parser.FailSubcommand("buffer size needs to be between 1 to 64KB", "send")
+		}
+		if args.Send.BufferSize > 64 {
+			parser.FailSubcommand("buffer size needs to be between 1 to 64KB", "send")
+		}
+		fmt.Println(args.Send.BufferSize)
 	}
 	if exited {
 		return
@@ -74,14 +87,14 @@ func handler(config *config.Config, engine *beam.Engine, s ssh.Session) {
 		slog.Debug("sender connected", "channel", name)
 		defer slog.Debug("sender disconnected", "channel", name)
 
-		channel, err := engine.AddSender(name, s, s.Stderr())
+		channel, err := engine.AddSender(name, s, args.Send.BufferSize, nil)
 		if err != nil {
 			err = fmt.Errorf("could not connect to channel: %w", err)
 			io.WriteString(s.Stderr(), fmt.Sprintln(err.Error()))
 			return
 		}
 		if !args.Quiet {
-			io.WriteString(s.Stderr(), fmt.Sprintf("<• connected to %s as sender\n", name))
+			io.WriteString(s.Stderr(), fmt.Sprintf("<- connected to %s as sender\n\n", name))
 
 			if channel.Receiver == nil {
 				io.WriteString(
@@ -102,8 +115,12 @@ func handler(config *config.Config, engine *beam.Engine, s ssh.Session) {
 			channel.Quit <- s.Context().Err()
 
 		case err := <-channel.Sender.Done:
-			if err != nil && !args.Quiet {
-				io.WriteString(s.Stderr(), fmt.Sprintln(err.Error()))
+			if !args.Quiet {
+				if err == nil {
+					io.WriteString(s.Stderr(), "beaming up complete\n")
+				} else {
+					io.WriteString(s.Stderr(), fmt.Sprintln(err.Error()))
+				}
 			}
 		}
 
@@ -126,7 +143,7 @@ func handler(config *config.Config, engine *beam.Engine, s ssh.Session) {
 			return
 		}
 		if !args.Quiet {
-			io.WriteString(s.Stderr(), fmt.Sprintf("•> connected to %s as receiver\n", name))
+			io.WriteString(s.Stderr(), fmt.Sprintf("-> connected to %s as receiver\n\n", name))
 
 			if channel.Sender == nil {
 				io.WriteString(
@@ -142,8 +159,12 @@ func handler(config *config.Config, engine *beam.Engine, s ssh.Session) {
 			channel.Quit <- s.Context().Err()
 
 		case err := <-channel.Receiver.Done:
-			if err != nil && !args.Quiet {
-				io.WriteString(s.Stderr(), fmt.Sprintln(err.Error()))
+			if !args.Quiet {
+				if err == nil {
+					io.WriteString(s.Stderr(), "beaming down complete\n")
+				} else {
+					io.WriteString(s.Stderr(), fmt.Sprintln(err.Error()))
+				}
 			}
 		}
 	}
