@@ -204,8 +204,8 @@ func run() error {
 
 	server := &ssh.Server{
 		Addr:                       config.BindAddr,
-		MaxTimeout:                 time.Duration(config.MaxTimeout) * time.Millisecond,
-		IdleTimeout:                time.Duration(config.IdleTimeout) * time.Millisecond,
+		MaxTimeout:                 time.Duration(config.MaxTimeout) * time.Second,
+		IdleTimeout:                time.Duration(config.IdleTimeout) * time.Second,
 		Handler:                    func(s ssh.Session) { handler(config, engine, s) },
 		PasswordHandler:            func(ctx ssh.Context, password string) bool { return false },
 		PublicKeyHandler:           func(ctx ssh.Context, key ssh.PublicKey) bool { return true },

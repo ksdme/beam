@@ -13,7 +13,7 @@ type Config struct {
 	HostKeyFile string `arg:"--host-key-file,required"`
 	Host        string `arg:"--host" default:"beam.ssh.camp" help:"public host name for this service"`
 	MaxTimeout  uint   `arg:"--max-timeout" default:"86400" help:"max connection lifetime in seconds, 0 for no limit"`
-	IdleTimeout uint   `arg:"--idle-timeout" default:"86400" help:"idle connection timeout in seconds, 0 for no limit"`
+	IdleTimeout uint   `arg:"--idle-timeout" default:"43200" help:"idle connection timeout in seconds, 0 for no limit"`
 }
 
 func LoadConfig() (*Config, error) {
