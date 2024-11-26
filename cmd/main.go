@@ -20,9 +20,7 @@ import (
 )
 
 // - Add a progress meter.
-// - Check what happens when the connection is interrupted during a transfer.
 // - Authorized Keys
-// - Timeout
 func handler(config *config.Config, engine *beam.Engine, s ssh.Session) {
 	// Calling s.Exit does not seem to cancel the context, so, we need to manually
 	// store that intent and return early if parsing arguments fail.
