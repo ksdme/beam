@@ -18,7 +18,8 @@ import (
 	"github.com/ksdme/beam/internal/utils"
 )
 
-// - Add a progress meter.
+// Handle a connection.
+// TODO: Show progress on the sender.
 func handler(config *config.Config, engine *beam.Engine, s ssh.Session) {
 	// Block interactive calls.
 	if _, _, active := s.Pty(); active {
@@ -214,7 +215,6 @@ func run() error {
 		slog.Info("loaded authorized keys", "count", len(authorized))
 	}
 
-	// Set up SSH
 	server := &ssh.Server{
 		Addr:        config.BindAddr,
 		MaxTimeout:  time.Duration(config.MaxTimeout) * time.Second,
