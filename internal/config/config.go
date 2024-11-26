@@ -3,40 +3,28 @@ package config
 import (
 	"fmt"
 	"os"
+
+	"github.com/alexflint/go-arg"
 )
 
 type Config struct {
-	Secret      string
-	BindAddr    string
-	HostKeyFile string
-	Host        string
+	Secret      string `arg:"-"`
+	BindAddr    string `arg:"--bind-addr" default:"127.0.0.1:2222"`
+	HostKeyFile string `arg:"--host-key-file,required"`
+	Host        string `arg:"--host" default:"beam.ssh.camp" help:"public host name for this service"`
+	MaxTimeout  uint   `arg:"--max-timeout" default:"86400" help:"max connection lifetime in seconds, 0 for no limit"`
+	IdleTimeout uint   `arg:"--idle-timeout" default:"86400" help:"idle connection timeout in seconds, 0 for no limit"`
 }
 
-func LoadConfigFromEnv() (*Config, error) {
+func LoadConfig() (*Config, error) {
+	var config Config
+	arg.MustParse(&config)
+
 	secret := os.Getenv("BEAM_SECRET")
 	if secret == "" {
-		return nil, fmt.Errorf("BEAM_SECRET missing")
+		return nil, fmt.Errorf("BEAM_SECRET environment variable missing")
 	}
+	config.Secret = secret
 
-	addr := os.Getenv("BEAM_BIND_ADDR")
-	if addr == "" {
-		addr = ":2222"
-	}
-
-	key := os.Getenv("BEAM_HOST_KEY_FILE")
-	if key == "" {
-		return nil, fmt.Errorf("BEAM_HOST_KEY_FILE missing")
-	}
-
-	host := os.Getenv("BEAM_HOST")
-	if host == "" {
-		host = "beam.ssh.camp"
-	}
-
-	return &Config{
-		Secret:      secret,
-		BindAddr:    addr,
-		HostKeyFile: key,
-		Host:        host,
-	}, nil
+	return &config, nil
 }

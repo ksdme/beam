@@ -8,12 +8,15 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/alexflint/go-arg"
 	"github.com/btcsuite/btcutil/base58"
 	"github.com/gliderlabs/ssh"
 	"github.com/ksdme/beam/internal/beam"
 	"github.com/ksdme/beam/internal/config"
+
+	gossh "golang.org/x/crypto/ssh"
 )
 
 // - Add a progress meter.
@@ -194,23 +197,26 @@ func makeChannelName(config *config.Config, key ssh.PublicKey, random bool) (str
 func run() error {
 	engine := beam.NewEngine()
 
-	config, err := config.LoadConfigFromEnv()
+	config, err := config.LoadConfig()
 	if err != nil {
 		return fmt.Errorf("could not load configuration: %w", err)
 	}
 
-	slog.Info("starting listening", "port", config.BindAddr)
-	err = ssh.ListenAndServe(
-		config.BindAddr,
-		func(s ssh.Session) { handler(config, engine, s) },
-		ssh.HostKeyFile(config.HostKeyFile),
-		ssh.PasswordAuth(func(ctx ssh.Context, password string) bool { return false }),
-		ssh.PublicKeyAuth(func(ctx ssh.Context, key ssh.PublicKey) bool { return true }),
-	)
-	if err != nil {
+	server := &ssh.Server{
+		Addr:                       config.BindAddr,
+		MaxTimeout:                 time.Duration(config.MaxTimeout) * time.Millisecond,
+		IdleTimeout:                time.Duration(config.IdleTimeout) * time.Millisecond,
+		Handler:                    func(s ssh.Session) { handler(config, engine, s) },
+		PasswordHandler:            func(ctx ssh.Context, password string) bool { return false },
+		PublicKeyHandler:           func(ctx ssh.Context, key ssh.PublicKey) bool { return true },
+		KeyboardInteractiveHandler: func(ctx ssh.Context, challenger gossh.KeyboardInteractiveChallenge) bool { return false },
+	}
+	ssh.HostKeyFile(config.HostKeyFile)(server)
+
+	slog.Info("listening", "addr", config.BindAddr)
+	if err = server.ListenAndServe(); err != nil {
 		return fmt.Errorf("could not start server: %w", err)
 	}
-
 	return nil
 }
 
