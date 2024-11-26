@@ -1,12 +1,12 @@
 package main
 
 import (
+	"crypto/rand"
 	"crypto/sha1"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
-	"regexp"
 	"strings"
 
 	"github.com/alexflint/go-arg"
@@ -19,18 +19,20 @@ import (
 // - Add a progress meter.
 // - Check what happens when the connection is interrupted during a transfer.
 // - Authorized Keys
+// - Timeout
 func handler(config *config.Config, engine *beam.Engine, s ssh.Session) {
 	// Calling s.Exit does not seem to cancel the context, so, we need to manually
 	// store that intent and return early if parsing arguments fail.
 	exited := false
 	exit := func(i int) {
 		s.Exit(i)
+		exited = true
 	}
 
 	// Parse the command passed.
 	type send struct {
-		BufferSize int    `arg:"--buffer-size,-b" default:"64" help:"buffer size in kB (between 1 and 64)"`
-		Channel    string `arg:"positional"`
+		RandomChannel bool `arg:"--random-channel,-r" help:"use a random channel name"`
+		BufferSize    int  `arg:"--buffer-size,-b" default:"64" help:"buffer size in kB (between 1 and 64)"`
 	}
 	type receive struct {
 		Channel string `arg:"positional"`
@@ -68,7 +70,6 @@ func handler(config *config.Config, engine *beam.Engine, s ssh.Session) {
 		if args.Send.BufferSize > 64 {
 			parser.FailSubcommand("buffer size needs to be between 1 and 64", "send")
 		}
-		fmt.Println(args.Send.BufferSize)
 	}
 	if exited {
 		return
@@ -76,7 +77,8 @@ func handler(config *config.Config, engine *beam.Engine, s ssh.Session) {
 
 	switch {
 	case args.Send != nil:
-		name, err := makeChannel(config, args.Send.Channel, s.PublicKey())
+		// You are not allowed to send to any channel.
+		name, err := makeChannelName(config, s.PublicKey(), args.Send.RandomChannel)
 		if err != nil {
 			slog.Debug("could not determine channel name", "err", err)
 			err = fmt.Errorf("could not connect to channel: %w", err)
@@ -125,12 +127,16 @@ func handler(config *config.Config, engine *beam.Engine, s ssh.Session) {
 		}
 
 	case args.Receive != nil:
-		name, err := makeChannel(config, args.Receive.Channel, s.PublicKey())
-		if err != nil {
-			slog.Debug("could not determine channel name", "err", err)
-			err = fmt.Errorf("could not connect to channel: %w", err)
-			io.WriteString(s.Stderr(), fmt.Sprintln(err.Error()))
-			return
+		// You are allowed to receive on any channel though.
+		name := strings.TrimSpace(args.Receive.Channel)
+		if name == "" {
+			name, err = makeChannelName(config, s.PublicKey(), false)
+			if err != nil {
+				slog.Debug("could not determine channel name", "err", err)
+				err = fmt.Errorf("could not connect to channel: %w", err)
+				io.WriteString(s.Stderr(), fmt.Sprintln(err.Error()))
+				return
+			}
 		}
 
 		slog.Debug("receiver connected", "channel", name)
@@ -143,14 +149,7 @@ func handler(config *config.Config, engine *beam.Engine, s ssh.Session) {
 			return
 		}
 		if !args.Quiet {
-			io.WriteString(s.Stderr(), fmt.Sprintf("-> connected to %s as receiver\n\n", name))
-
-			if channel.Sender == nil {
-				io.WriteString(
-					s.Stderr(),
-					fmt.Sprintf("To send data on this beam pipe it into: ssh %s send %s\n\n", config.Host, name),
-				)
-			}
+			io.WriteString(s.Stderr(), fmt.Sprintf("-> connected to %s as receiver\n", name))
 		}
 
 		// Block until beamer is done or the connection is aborted.
@@ -170,25 +169,23 @@ func handler(config *config.Config, engine *beam.Engine, s ssh.Session) {
 	}
 }
 
-// Select the name of the channel based on the explicit option or an implicit
-// channel based on the public key.
-func makeChannel(config *config.Config, name string, key ssh.PublicKey) (string, error) {
-	name = strings.TrimSpace(name)
-	if name != "" {
-		if len(name) < 6 {
-			return "", fmt.Errorf("channel names needs to between 6 to 64 characters long")
+// Generate a random channel name or a name based on the public key
+// signature of the participant.
+func makeChannelName(config *config.Config, key ssh.PublicKey, random bool) (string, error) {
+	var base []byte
+	if random {
+		b := make([]byte, 512)
+		if n, err := rand.Read(b); err != nil {
+			return "", fmt.Errorf("could not generate random channel name: %w", err)
+		} else {
+			base = b[:n]
 		}
-		if len(name) > 64 {
-			return "", fmt.Errorf("channel names needs to between 6 to 64 characters long")
-		}
-		if ok, _ := regexp.MatchString(`^\w+$`, name); !ok {
-			return "", fmt.Errorf("channel name can only contain lowercase, uppercase letters, digits and underscores")
-		}
-		return name, nil
+	} else {
+		base = key.Marshal()
 	}
 
 	h := sha1.New()
-	h.Write(key.Marshal())
+	h.Write(base)
 	h.Write([]byte(config.Secret))
 	digest := h.Sum(nil)
 	return base58.Encode(digest), nil
