@@ -19,8 +19,14 @@ import (
 )
 
 // - Add a progress meter.
-// - Block interactive sessions.
 func handler(config *config.Config, engine *beam.Engine, s ssh.Session) {
+	// Block interactive calls.
+	if _, _, active := s.Pty(); active {
+		io.WriteString(s, "This server does not support interactive terminal sessions.\n")
+		s.Exit(1)
+		return
+	}
+
 	// Calling s.Exit does not seem to cancel the context, so, we need to manually
 	// store that intent and return early if parsing arguments fail.
 	exited := false
