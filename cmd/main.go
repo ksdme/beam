@@ -21,7 +21,7 @@ import (
 // - Authorized Keys
 func handler(config *config.Config, engine *beam.Engine, s ssh.Session) {
 	// Calling s.Exit does not seem to cancel the context, so, we need to manually
-	// store that intent and return early.
+	// store that intent and return early if parsing arguments fail.
 	exited := false
 	exit := func(i int) {
 		s.Exit(i)
@@ -63,10 +63,10 @@ func handler(config *config.Config, engine *beam.Engine, s ssh.Session) {
 	}
 	if args.Send != nil {
 		if args.Send.BufferSize < 1 {
-			parser.FailSubcommand("buffer size needs to be between 1 to 64KB", "send")
+			parser.FailSubcommand("buffer size needs to be between 1 and 64", "send")
 		}
 		if args.Send.BufferSize > 64 {
-			parser.FailSubcommand("buffer size needs to be between 1 to 64KB", "send")
+			parser.FailSubcommand("buffer size needs to be between 1 and 64", "send")
 		}
 		fmt.Println(args.Send.BufferSize)
 	}
