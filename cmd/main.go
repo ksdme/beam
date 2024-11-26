@@ -15,12 +15,11 @@ import (
 	"github.com/gliderlabs/ssh"
 	"github.com/ksdme/beam/internal/beam"
 	"github.com/ksdme/beam/internal/config"
-
-	gossh "golang.org/x/crypto/ssh"
+	"github.com/ksdme/beam/internal/utils"
 )
 
 // - Add a progress meter.
-// - Authorized Keys
+// - Block interactive sessions.
 func handler(config *config.Config, engine *beam.Engine, s ssh.Session) {
 	// Calling s.Exit does not seem to cancel the context, so, we need to manually
 	// store that intent and return early if parsing arguments fail.
@@ -200,14 +199,28 @@ func run() error {
 		return fmt.Errorf("could not load configuration: %w", err)
 	}
 
+	var authorized map[string]bool
+	if config.AuthorizedKeysFile != "" {
+		authorized, err = utils.LoadAuthorizedKeys(config.AuthorizedKeysFile)
+		if err != nil {
+			return fmt.Errorf("could not load authorized keys: %w", err)
+		}
+		slog.Info("loaded authorized keys", "count", len(authorized))
+	}
+
+	// Set up SSH
 	server := &ssh.Server{
-		Addr:                       config.BindAddr,
-		MaxTimeout:                 time.Duration(config.MaxTimeout) * time.Second,
-		IdleTimeout:                time.Duration(config.IdleTimeout) * time.Second,
-		Handler:                    func(s ssh.Session) { handler(config, engine, s) },
-		PasswordHandler:            func(ctx ssh.Context, password string) bool { return false },
-		PublicKeyHandler:           func(ctx ssh.Context, key ssh.PublicKey) bool { return true },
-		KeyboardInteractiveHandler: func(ctx ssh.Context, challenger gossh.KeyboardInteractiveChallenge) bool { return false },
+		Addr:        config.BindAddr,
+		MaxTimeout:  time.Duration(config.MaxTimeout) * time.Second,
+		IdleTimeout: time.Duration(config.IdleTimeout) * time.Second,
+		Handler:     func(s ssh.Session) { handler(config, engine, s) },
+		PublicKeyHandler: func(ctx ssh.Context, key ssh.PublicKey) bool {
+			if authorized != nil {
+				_, ok := authorized[string(key.Marshal())]
+				return ok
+			}
+			return true
+		},
 	}
 	ssh.HostKeyFile(config.HostKeyFile)(server)
 
