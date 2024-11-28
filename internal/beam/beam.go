@@ -142,7 +142,7 @@ func (e *Engine) beam(name string, channel *channel) {
 
 	// Run until the termination of the worker is explicitly requested (mostly when
 	// either participant unexpectedly goes away) or untilt the transfer is complete.
-	sender := iochan.ReadToChannel(channel.Sender.reader, channel.Sender.bufferSize)
+	sender := iochan.ReadToChannel(channel.Sender.reader, channel.Sender.bufferSize*1024)
 	for {
 		select {
 		case <-channel.Quit:
