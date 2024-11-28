@@ -11,7 +11,7 @@ type ReadResult struct {
 // Read from the reader and yield chunks into the returned channel. The channel
 // terminates when there is an error on the reader.
 func ReadToChannel(reader io.Reader, b int) chan ReadResult {
-	ch := make(chan ReadResult)
+	ch := make(chan ReadResult, 3)
 	go read(reader, b, ch)
 	return ch
 }
