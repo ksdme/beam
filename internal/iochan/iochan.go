@@ -3,6 +3,7 @@ package iochan
 import "io"
 
 type ReadResult struct {
+	N    int
 	Data []byte
 	Err  error
 }
@@ -16,16 +17,17 @@ func ReadToChannel(reader io.Reader, b int) chan ReadResult {
 }
 
 // Loop the reader and write to the result channel.
-func read(reader io.Reader, b int, r chan ReadResult) {
-	buffer := make([]byte, b)
+func read(reader io.Reader, size int, result chan ReadResult) {
 	for {
+		buffer := make([]byte, size)
 		n, err := reader.Read(buffer)
-		r <- ReadResult{
+		result <- ReadResult{
+			N:    n,
 			Data: buffer[:n],
 			Err:  err,
 		}
 		if err != nil {
-			close(r)
+			close(result)
 			return
 		}
 	}

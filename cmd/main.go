@@ -12,9 +12,11 @@ import (
 
 	"github.com/alexflint/go-arg"
 	"github.com/btcsuite/btcutil/base58"
+	"github.com/dustin/go-humanize"
 	"github.com/gliderlabs/ssh"
 	"github.com/ksdme/beam/internal/beam"
 	"github.com/ksdme/beam/internal/config"
+	"github.com/ksdme/beam/internal/spinner"
 	"github.com/ksdme/beam/internal/utils"
 )
 
@@ -118,17 +120,32 @@ func handler(config *config.Config, engine *beam.Engine, s ssh.Session) {
 			}
 		}
 
+		spin := spinner.NewSpinner(s.Stderr())
+	wait:
 		// Block until beamer is done or the connection is aborted.
-		select {
-		case <-s.Context().Done():
-			channel.Quit <- s.Context().Err()
+		// Push the update while that happens though.
+		for {
+			select {
+			case err := <-channel.Sender.Done:
+				if !args.Quiet {
+					if err == nil {
+						io.WriteString(s.Stderr(), fmt.Sprintf("beaming up complete (%s)\n", humanize.Bytes(channel.UploadedBytes)))
+					} else {
+						io.WriteString(s.Stderr(), fmt.Sprintln(err.Error()))
+					}
+				}
+				break wait
 
-		case err := <-channel.Sender.Done:
-			if !args.Quiet {
-				if err == nil {
-					io.WriteString(s.Stderr(), "beaming up complete\n")
-				} else {
-					io.WriteString(s.Stderr(), fmt.Sprintln(err.Error()))
+			case <-s.Context().Done():
+				channel.Quit <- s.Context().Err()
+
+			case <-time.After(200 * time.Millisecond):
+				if !args.Quiet {
+					if channel.Started {
+						spin.Render(fmt.Sprintf("Uploaded %s", humanize.Bytes(channel.UploadedBytes)))
+					} else {
+						spin.Render("Waiting for receiver")
+					}
 				}
 			}
 		}

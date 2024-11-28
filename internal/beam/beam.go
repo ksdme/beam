@@ -15,10 +15,12 @@ type Engine struct {
 }
 
 type channel struct {
-	ready    chan bool
-	Quit     chan error
-	Sender   *sender
-	Receiver *receiver
+	ready         chan bool
+	Started       bool
+	UploadedBytes uint64
+	Quit          chan error
+	Sender        *sender
+	Receiver      *receiver
 }
 
 type sender struct {
@@ -135,6 +137,7 @@ func (e *Engine) beam(name string, channel *channel) {
 		return
 
 	case <-channel.ready:
+		channel.Started = true
 	}
 
 	// Run until the termination of the worker is explicitly requested (mostly when
@@ -167,6 +170,7 @@ func (e *Engine) beam(name string, channel *channel) {
 				done(fmt.Errorf("error uploading"), fmt.Errorf("error on the sender end"))
 				return
 			}
+			channel.UploadedBytes += uint64(chunk.N)
 
 			_, err := channel.Receiver.writer.Write(chunk.Data)
 			if err != nil {
