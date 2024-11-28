@@ -16,8 +16,8 @@ import (
 	"github.com/gliderlabs/ssh"
 	"github.com/ksdme/beam/internal/beam"
 	"github.com/ksdme/beam/internal/config"
+	"github.com/ksdme/beam/internal/keys"
 	"github.com/ksdme/beam/internal/spinner"
-	"github.com/ksdme/beam/internal/utils"
 )
 
 // Handle a connection.
@@ -225,7 +225,7 @@ func run() error {
 
 	var authorized map[string]bool
 	if config.AuthorizedKeysFile != "" {
-		authorized, err = utils.LoadAuthorizedKeys(config.AuthorizedKeysFile)
+		authorized, err = keys.LoadAuthorizedKeys(config.AuthorizedKeysFile)
 		if err != nil {
 			return fmt.Errorf("could not load authorized keys: %w", err)
 		}
