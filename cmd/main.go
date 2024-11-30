@@ -21,7 +21,8 @@ import (
 )
 
 // Handle a connection.
-// TODO: Show progress on the sender.
+// TODO: Send a spinner on the receiver side.
+// TODO: Make the command to receive stand out.
 func handler(config *config.Config, engine *beam.Engine, s ssh.Session) {
 	// Block interactive calls.
 	if _, _, active := s.Pty(); active {
@@ -41,7 +42,7 @@ func handler(config *config.Config, engine *beam.Engine, s ssh.Session) {
 	// Parse the command passed.
 	type send struct {
 		RandomChannel bool `arg:"--random-channel,-r" help:"use a random channel name"`
-		BufferSize    int  `arg:"--buffer-size,-b" default:"64" help:"buffer size in kB (between 1 and 64)"`
+		BufferSize    int  `arg:"--buffer-size,-b" default:"8192" help:"buffer size in bytes (between 512 and 65536)"`
 	}
 	type receive struct {
 		Channel string `arg:"positional"`
@@ -73,11 +74,11 @@ func handler(config *config.Config, engine *beam.Engine, s ssh.Session) {
 		parser.Fail("missing subcommand")
 	}
 	if args.Send != nil {
-		if args.Send.BufferSize < 1 {
-			parser.FailSubcommand("buffer size needs to be between 1 and 64", "send")
+		if args.Send.BufferSize < 512 {
+			parser.FailSubcommand("buffer size needs to be between 512 and 65536", "send")
 		}
-		if args.Send.BufferSize > 64 {
-			parser.FailSubcommand("buffer size needs to be between 1 and 64", "send")
+		if args.Send.BufferSize > 65536 {
+			parser.FailSubcommand("buffer size needs to be between 512 and 65536", "send")
 		}
 	}
 	if exited {
@@ -98,7 +99,7 @@ func handler(config *config.Config, engine *beam.Engine, s ssh.Session) {
 		slog.Debug("sender connected", "channel", name)
 		defer slog.Debug("sender disconnected", "channel", name)
 
-		channel, err := engine.AddSender(name, s, args.Send.BufferSize, nil)
+		channel, err := engine.AddSender(name, s, args.Send.BufferSize)
 		if err != nil {
 			err = fmt.Errorf("could not connect to channel: %w", err)
 			io.WriteString(s.Stderr(), fmt.Sprintln(err.Error()))
@@ -111,8 +112,8 @@ func handler(config *config.Config, engine *beam.Engine, s ssh.Session) {
 				io.WriteString(
 					s.Stderr(),
 					fmt.Sprintf(
-						"To receive this beam run: ssh %s receive %s\n"+
-							"You can pipe the output of that command or redirect it to a file to save it.\n\n",
+						"To receive this beam use:\n"+
+							"$ ssh %s receive %s\n\n",
 						config.Host,
 						name,
 					),

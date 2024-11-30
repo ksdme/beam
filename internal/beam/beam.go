@@ -24,10 +24,9 @@ type channel struct {
 }
 
 type sender struct {
-	bufferSize int
-	reader     io.Reader
-	progress   func(int)
-	Done       chan error
+	chunk  int
+	reader io.Reader
+	Done   chan error
 }
 
 type receiver struct {
@@ -66,7 +65,7 @@ func (e *Engine) createBeamer(name string, channel *channel) {
 
 // Adds a sender to a specific session if one doesn't already exist. And, returns
 // a channel that yields an exit code when the beaming is complete.
-func (e *Engine) AddSender(name string, reader io.Reader, bufferSize int, progress func(int)) (*channel, error) {
+func (e *Engine) AddSender(name string, reader io.Reader, chunk int) (*channel, error) {
 	e.lock.Lock()
 	defer e.lock.Unlock()
 
@@ -76,10 +75,9 @@ func (e *Engine) AddSender(name string, reader io.Reader, bufferSize int, progre
 	}
 
 	channel.Sender = &sender{
-		bufferSize: bufferSize,
-		reader:     reader,
-		progress:   progress,
-		Done:       make(chan error),
+		chunk:  chunk,
+		reader: reader,
+		Done:   make(chan error),
 	}
 	e.createBeamer(name, channel)
 
@@ -140,9 +138,10 @@ func (e *Engine) beam(name string, channel *channel) {
 		channel.Started = true
 	}
 
+	slog.Debug("beaming", "channel", name, "chunk", channel.Sender.chunk)
 	// Run until the termination of the worker is explicitly requested (mostly when
 	// either participant unexpectedly goes away) or untilt the transfer is complete.
-	sender := iochan.ReadToChannel(channel.Sender.reader, channel.Sender.bufferSize*1024)
+	sender := iochan.ReadToBufferedChannel(channel.Sender.reader, channel.Sender.chunk, 4)
 	for {
 		select {
 		case <-channel.Quit:
