@@ -5,8 +5,6 @@ import (
 	"io"
 	"log/slog"
 	"sync"
-
-	"github.com/ksdme/beam/internal/iochan"
 )
 
 type Engine struct {
@@ -15,23 +13,24 @@ type Engine struct {
 }
 
 type channel struct {
-	ready         chan bool
-	Started       bool
-	UploadedBytes uint64
-	Quit          chan error
-	Sender        *sender
-	Receiver      *receiver
+	ready    chan bool
+	Sender   *sender
+	Receiver *receiver
+	Started  bool
+	Quit     chan error
 }
 
 type sender struct {
-	chunk  int
-	reader io.Reader
-	Done   chan error
+	chunk      int
+	reader     io.Reader
+	Done       chan error
+	TotalBytes uint64
 }
 
 type receiver struct {
-	writer io.Writer
-	Done   chan error
+	writer     io.Writer
+	Done       chan error
+	TotalBytes uint64
 }
 
 func NewEngine() *Engine {
@@ -106,24 +105,18 @@ func (e *Engine) AddReceiver(name string, writer io.Writer, log io.Writer) (*cha
 
 func (e *Engine) beam(name string, channel *channel) {
 	defer e.clean(name)
-	slog.Debug("started up beamer", "channel", name)
-	defer slog.Debug("closing up beamer", "channel", name)
+	slog.Info("started up beamer", "channel", name)
+	defer slog.Info("closing up beamer", "channel", name)
 
 	// Send a done signal to both the participant channels in a non-blocking
 	// manner and, only if they exist.
-	done := func(s, r error) {
+	terminate := func(s, r error) {
 		if channel.Sender != nil {
-			select {
-			case channel.Sender.Done <- s:
-			default:
-			}
+			nbsend(channel.Sender.Done, s)
 		}
 
 		if channel.Receiver != nil {
-			select {
-			case channel.Receiver.Done <- r:
-			default:
-			}
+			nbsend(channel.Receiver.Done, r)
 		}
 	}
 
@@ -131,61 +124,99 @@ func (e *Engine) beam(name string, channel *channel) {
 	// If one of the participants goes away while waiting, this worker will die.
 	select {
 	case <-channel.Quit:
-		done(nil, nil)
+		terminate(nil, nil)
 		return
 
 	case <-channel.ready:
 		channel.Started = true
 	}
 
-	slog.Debug("beaming", "channel", name, "chunk", channel.Sender.chunk)
-	// Run until the termination of the worker is explicitly requested (mostly when
-	// either participant unexpectedly goes away) or untilt the transfer is complete.
-	sender := iochan.ReadToBufferedChannel(channel.Sender.reader, channel.Sender.chunk, 4)
-	for {
-		select {
-		case <-channel.Quit:
-			// When the channel is quit, we expect the streams to eventually be closed,
-			// so, the sender channel from above should also die in a cycle or two.
-			err := fmt.Errorf("connection interrupted")
-			done(err, err)
-			return
+	// Sender loop.
+	chunks := make(chan []byte, 4)
+	senderErr := make(chan error)
+	go func() {
+		slog.Debug("sender loop started", "channel", name)
+		defer slog.Debug("sender loop closed", "channel", name)
 
-		case chunk, ok := <-sender:
-			if !ok {
-				// Ideally, we should never be in this state.
-				slog.Info("sender read after close", "err", chunk.Err, "channel", name)
-				done(fmt.Errorf("could not upload: connection terminated"), fmt.Errorf("sender interrupted"))
-				return
-			}
-
-			if chunk.Err != nil {
-				if chunk.Err == io.EOF {
-					done(nil, nil)
-					return
-				}
-
-				slog.Info("err reading from sender", "channel", name, "err", chunk.Err)
-				done(fmt.Errorf("error uploading"), fmt.Errorf("error on the sender end"))
-				return
-			}
-			channel.UploadedBytes += uint64(chunk.N)
-
-			_, err := channel.Receiver.writer.Write(chunk.Data)
+		for {
+			buffer := make([]byte, channel.Sender.chunk)
+			n, err := channel.Sender.reader.Read(buffer)
 			if err != nil {
-				slog.Info("err writing to receiver", "channel", name, "err", err)
-				done(fmt.Errorf("error on the receiver end"), fmt.Errorf("error downloading"))
+				if err != io.EOF {
+					nbsend(senderErr, err)
+				}
+				close(chunks)
 				return
 			}
+
+			channel.Sender.TotalBytes += uint64(n)
+			chunks <- buffer[:n]
 		}
+	}()
+
+	// Receiver loop.
+	complete := make(chan bool)
+	receiverErr := make(chan error)
+	go func() {
+		slog.Debug("receiver loop started", "channel", name)
+		defer slog.Debug("receiver loop closed", "channel", name)
+
+		for chunk := range chunks {
+			n, err := channel.Receiver.writer.Write(chunk)
+			if err != nil {
+				nbsend(receiverErr, err)
+				return
+			}
+
+			channel.Receiver.TotalBytes += uint64(n)
+		}
+
+		// Once we have processed all chunks and the chunks channel has closed,
+		// we are done.
+		nbsend(complete, true)
+	}()
+
+	slog.Debug("beaming", "channel", name, "chunk", channel.Sender.chunk)
+	select {
+	case <-complete:
+		terminate(nil, nil)
+		return
+
+	case <-channel.Quit:
+		// When the channel is quit, we expect the streams to eventually be closed,
+		// so, the sender channel from above should also die in a cycle or two.
+		err := fmt.Errorf("connection interrupted")
+		terminate(err, err)
+		return
+
+	// An error on either the sender or receiver will trigger the termination of
+	// both the sender and the receiver. This should eventually cause the reader
+	// loop to fail with an err and exit.
+	case err := <-senderErr:
+		slog.Info("err reading from sender", "channel", name, "err", err)
+		terminate(fmt.Errorf("could not upload: connection terminated"), fmt.Errorf("sender interrupted"))
+		return
+
+	case err := <-receiverErr:
+		slog.Info("err writing to receiver", "channel", name, "err", err)
+		terminate(fmt.Errorf("error on the receiver end"), fmt.Errorf("error downloading"))
+		return
 	}
 }
 
 func (e *Engine) clean(channel string) {
-	slog.Debug("cleaning up", "channel", channel)
+	slog.Info("cleaning up", "channel", channel)
 
 	e.lock.Lock()
 	defer e.lock.Unlock()
 
 	delete(e.channels, channel)
+}
+
+// Utilty for non blocking send to a channel.
+func nbsend[K any](ch chan<- K, value K) {
+	select {
+	case ch <- value:
+	default:
+	}
 }
