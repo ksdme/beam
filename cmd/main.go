@@ -21,8 +21,6 @@ import (
 )
 
 // Handle a connection.
-// TODO: Send a spinner on the receiver side.
-// TODO: Make the command to receive stand out.
 func handler(config *config.Config, engine *beam.Engine, s ssh.Session) {
 	// Block interactive calls.
 	if _, _, active := s.Pty(); active {
@@ -43,12 +41,13 @@ func handler(config *config.Config, engine *beam.Engine, s ssh.Session) {
 	type send struct {
 		RandomChannel bool `arg:"--random-channel,-r" help:"use a random channel name"`
 		BufferSize    int  `arg:"--buffer-size,-b" default:"8192" help:"buffer size in bytes (between 512 and 65536)"`
+		Progress      bool `arg:"--progress,-p" default:"true" help:"show channel and progress log"`
 	}
 	type receive struct {
-		Channel string `arg:"positional"`
+		Channel  string `arg:"positional"`
+		Progress bool   `arg:"--progress,-p" default:"false" help:"show channel and progress log"`
 	}
 	var args struct {
-		Quiet   bool
 		Send    *send    `arg:"subcommand:send"`
 		Receive *receive `arg:"subcommand:receive"`
 	}
@@ -105,7 +104,7 @@ func handler(config *config.Config, engine *beam.Engine, s ssh.Session) {
 			io.WriteString(s.Stderr(), fmt.Sprintln(err.Error()))
 			return
 		}
-		if !args.Quiet {
+		if args.Send.Progress {
 			io.WriteString(s.Stderr(), fmt.Sprintf("<- connected to %s as sender\n\n", name))
 
 			if channel.Receiver == nil {
@@ -122,30 +121,39 @@ func handler(config *config.Config, engine *beam.Engine, s ssh.Session) {
 		}
 
 		spin := spinner.NewSpinner(s.Stderr())
-	wait:
+	sloop:
 		// Block until beamer is done or the connection is aborted.
 		// Push the update while that happens though.
 		for {
 			select {
 			case err := <-channel.Sender.Done:
-				if !args.Quiet {
+				if args.Send.Progress {
 					if err == nil {
-						io.WriteString(s.Stderr(), fmt.Sprintf("beaming up complete (%s)\n", humanize.Bytes(channel.UploadedBytes)))
+						io.WriteString(
+							s.Stderr(),
+							fmt.Sprintf(
+								"beaming up complete (%s)\n",
+								humanize.Bytes(channel.Sender.TotalBytes),
+							),
+						)
 					} else {
 						io.WriteString(s.Stderr(), fmt.Sprintln(err.Error()))
 					}
 				}
-				break wait
+				break sloop
 
 			case <-s.Context().Done():
 				channel.Quit <- s.Context().Err()
 
 			case <-time.After(200 * time.Millisecond):
-				if !args.Quiet {
+				if args.Send.Progress {
 					if channel.Started {
-						spin.Render(fmt.Sprintf("Uploaded %s", humanize.Bytes(channel.UploadedBytes)))
+						spin.Render(fmt.Sprintf(
+							"uploaded %s",
+							humanize.Bytes(channel.Sender.TotalBytes),
+						))
 					} else {
-						spin.Render("Waiting for receiver")
+						spin.Render("waiting for receiver")
 					}
 				}
 			}
@@ -173,21 +181,44 @@ func handler(config *config.Config, engine *beam.Engine, s ssh.Session) {
 			io.WriteString(s.Stderr(), fmt.Sprintln(err.Error()))
 			return
 		}
-		if !args.Quiet {
-			io.WriteString(s.Stderr(), fmt.Sprintf("-> connected to %s as receiver\n", name))
+		if args.Receive.Progress {
+			io.WriteString(s.Stderr(), fmt.Sprintf("-> connected to %s as receiver\n\n", name))
 		}
 
-		// Block until beamer is done or the connection is aborted.
-		select {
-		case <-s.Context().Done():
-			channel.Quit <- s.Context().Err()
+		spin := spinner.NewSpinner(s.Stderr())
+	rloop:
+		for {
+			// Block until beamer is done or the connection is aborted.
+			select {
+			case err := <-channel.Receiver.Done:
+				if args.Receive.Progress {
+					if err == nil {
+						io.WriteString(
+							s.Stderr(),
+							fmt.Sprintf(
+								"beaming down complete (%s)\n",
+								humanize.Bytes(channel.Receiver.TotalBytes),
+							),
+						)
+					} else {
+						io.WriteString(s.Stderr(), fmt.Sprintln(err.Error()))
+					}
+				}
+				break rloop
 
-		case err := <-channel.Receiver.Done:
-			if !args.Quiet {
-				if err == nil {
-					io.WriteString(s.Stderr(), "beaming down complete\n")
-				} else {
-					io.WriteString(s.Stderr(), fmt.Sprintln(err.Error()))
+			case <-s.Context().Done():
+				channel.Quit <- s.Context().Err()
+
+			case <-time.After(200 * time.Millisecond):
+				if args.Receive.Progress {
+					if channel.Started {
+						spin.Render(fmt.Sprintf(
+							"downloaded %s",
+							humanize.Bytes(channel.Receiver.TotalBytes),
+						))
+					} else {
+						spin.Render("waiting for sender")
+					}
 				}
 			}
 		}
