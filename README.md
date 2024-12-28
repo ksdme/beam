@@ -6,6 +6,8 @@
     transfer or pipe files and streams from one computer to another over ssh
 </p>
 
-![](https://raw.githubusercontent.com/ksdme/beam/refs/heads/main/assets/logs-beam-demo.mp4)
+![](./assets/logs-beam-demo.gif)
 
-<video src="https://raw.githubusercontent.com/ksdme/beam/refs/heads/main/assets/logs-beam-demo.mp4" width="100%" height="auto" />
+<img src="./assets/logs-beam-demo.gif" width="100%" height="auto">
+
+<video src="./assets/logs-beam-demo.mp4" width="100%" height="auto" />
