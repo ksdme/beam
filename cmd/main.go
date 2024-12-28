@@ -40,7 +40,7 @@ func handler(config *config.Config, engine *beam.Engine, s ssh.Session) {
 	// Parse the command passed.
 	type send struct {
 		RandomChannel bool `arg:"--random-channel,-r" help:"use a random channel name"`
-		BufferSize    int  `arg:"--buffer-size,-b" default:"8192" help:"buffer size in bytes (between 512 and 65536)"`
+		BufferSize    int  `arg:"--buffer-size,-b" default:"8192" help:"buffer size in bytes (between 64 and 65536)"`
 		Progress      bool `arg:"--progress,-p" default:"true" help:"show channel and progress log"`
 	}
 	type receive struct {
@@ -73,7 +73,7 @@ func handler(config *config.Config, engine *beam.Engine, s ssh.Session) {
 		parser.Fail("missing subcommand")
 	}
 	if args.Send != nil {
-		if args.Send.BufferSize < 512 {
+		if args.Send.BufferSize < 64 {
 			parser.FailSubcommand("buffer size needs to be between 512 and 65536", "send")
 		}
 		if args.Send.BufferSize > 65536 {
