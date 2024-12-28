@@ -7,5 +7,5 @@
 </p>
 
 <video autoplay loop muted style="width:100%; height: auto;">
-  <source src="./assets/logs-beam-demo.mp4" type="video/mp4" />
+  <source src="https://raw.githubusercontent.com/ksdme/beam/refs/heads/main/assets/logs-beam-demo.mp4" type="video/mp4" />
 </video>
