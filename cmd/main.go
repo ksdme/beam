@@ -87,7 +87,7 @@ func handler(config *config.Config, engine *beam.Engine, s ssh.Session) {
 	switch {
 	case args.Send != nil:
 		// You are not allowed to send to any channel.
-		name, err := makeChannelName(config, s.PublicKey(), args.Send.RandomChannel)
+		name, err := resolveTargetChannel(config, s.PublicKey(), args.Send.RandomChannel)
 		if err != nil {
 			slog.Debug("could not determine channel name", "err", err)
 			err = fmt.Errorf("could not connect to channel: %w", err)
@@ -143,7 +143,7 @@ func handler(config *config.Config, engine *beam.Engine, s ssh.Session) {
 				break sloop
 
 			case <-s.Context().Done():
-				channel.Quit <- s.Context().Err()
+				channel.Interrput <- s.Context().Err()
 
 			case <-time.After(200 * time.Millisecond):
 				if args.Send.Progress {
@@ -160,10 +160,9 @@ func handler(config *config.Config, engine *beam.Engine, s ssh.Session) {
 		}
 
 	case args.Receive != nil:
-		// You are allowed to receive on any channel though.
 		name := strings.TrimSpace(args.Receive.Channel)
 		if name == "" {
-			name, err = makeChannelName(config, s.PublicKey(), false)
+			name, err = resolveTargetChannel(config, s.PublicKey(), false)
 			if err != nil {
 				slog.Debug("could not determine channel name", "err", err)
 				err = fmt.Errorf("could not connect to channel: %w", err)
@@ -207,7 +206,7 @@ func handler(config *config.Config, engine *beam.Engine, s ssh.Session) {
 				break rloop
 
 			case <-s.Context().Done():
-				channel.Quit <- s.Context().Err()
+				channel.Interrput <- s.Context().Err()
 
 			case <-time.After(200 * time.Millisecond):
 				if args.Receive.Progress {
@@ -227,7 +226,7 @@ func handler(config *config.Config, engine *beam.Engine, s ssh.Session) {
 
 // Generate a random channel name or a name based on the public key
 // signature of the participant.
-func makeChannelName(config *config.Config, key ssh.PublicKey, random bool) (string, error) {
+func resolveTargetChannel(config *config.Config, key ssh.PublicKey, random bool) (string, error) {
 	var base []byte
 	if random {
 		b := make([]byte, 512)

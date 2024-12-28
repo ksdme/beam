@@ -13,11 +13,11 @@ type Engine struct {
 }
 
 type channel struct {
-	ready    chan bool
-	Sender   *sender
-	Receiver *receiver
-	Started  bool
-	Quit     chan error
+	ready     chan bool
+	Sender    *sender
+	Receiver  *receiver
+	Started   bool
+	Interrput chan error
 }
 
 type sender struct {
@@ -43,7 +43,7 @@ func (e *Engine) findOrCreateChannel(name string) *channel {
 	ch, exists := e.channels[name]
 	if !exists {
 		ch = &channel{
-			Quit: make(chan error),
+			Interrput: make(chan error),
 		}
 		e.channels[name] = ch
 	}
@@ -120,10 +120,10 @@ func (e *Engine) beam(name string, channel *channel) {
 		}
 	}
 
-	// This is a blocking read that will only run when the entire channel is ready.
+	// This is a blocking read that will only resolve when the entire channel is ready.
 	// If one of the participants goes away while waiting, this worker will die.
 	select {
-	case <-channel.Quit:
+	case <-channel.Interrput:
 		terminate(nil, nil)
 		return
 
@@ -182,7 +182,7 @@ func (e *Engine) beam(name string, channel *channel) {
 		terminate(nil, nil)
 		return
 
-	case <-channel.Quit:
+	case <-channel.Interrput:
 		// When the channel is quit, we expect the streams to eventually be closed,
 		// so, the sender channel from above should also die in a cycle or two.
 		err := fmt.Errorf("connection interrupted")
