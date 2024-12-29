@@ -52,7 +52,7 @@ For example, here's a demo tail-ing a log file from one machine on the other,
 
 
 - SSH connections cannot be load balanced or geo-routed. So, unless you explicitly use the host closest to you,
-you might notice low transfer rates.
+you might notice low transfer rates. The public beam.ssh.camp server is hosted in Falkenstein, Germany on Hetzner.
 
 - Beam cannot support end-to-end encrypted buffers. While data is encrypted during transfer to and from the Beam
 host, it’s decrypted temporarily before being re-encrypted and forwarded. The host only holds a small buffer
