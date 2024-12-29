@@ -9,8 +9,6 @@
     transfer pipes and files from one computer to another over ssh
 </p>
 
-<br/>
-
 ## Why SSH?
 
 Unlike [wormhole](https://github.com/magic-wormhole/magic-wormhole) or [portal](https://github.com/SpatiumPortae/portal), Beam is built
