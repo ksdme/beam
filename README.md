@@ -7,19 +7,15 @@
 </p>
 
 <br/>
-<br/>
 
-Beam is a tool that lets you transfer a pipe between two machines over regular SSH. It doesn't bother itself
-with the actual contents of the pipe. This means you can use it to transfer just about anything including files.
+## Why SSH?
 
-### Why SSH?
+Unlike [wormhole](https://github.com/magic-wormhole/magic-wormhole) or [portal](https://github.com/SpatiumPortae/portal), Beam is built
+on top of SSH. As a result, it has some advantages, including,
 
-Unlike [wormhole](https://github.com/magic-wormhole/magic-wormhole) or [portal](https://github.com/SpatiumPortae/portal), beam is built
-on top of SSH. As a result, beam has some advantages, including,
-
-- No binary installation, all you need is an ssh client
-- Built in authentication
-- Support for transferring pipes, not just files
+- 🚀 No binary installation, all you need is an ssh client
+- 🔒 Built in authentication
+- 📡 Support for transferring pipes, not just files
 
 ### How does it work?
 
