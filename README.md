@@ -17,7 +17,7 @@ on top of SSH. As a result, it has some advantages, including,
 - 🔒 Built in authentication
 - 📡 Support for transferring pipes, not just files
 
-### How does it work?
+## How does it work?
 
 On the sender end, pipe your contents into beam using something like,
 
@@ -43,7 +43,7 @@ For example, here's a demo tail-ing a log file from one machine on the other,
 
 <img src="./assets/logs-beam-demo.gif" width="100%" height="auto" style="display: block; min-height: 80px;">
 
-### Caveats
+## Caveats
 
 - SSH connections cannot be load balanced or geo-routed. So, unless you explicitly use the host closest to you,
 you might notice low transfer rates.
@@ -53,7 +53,7 @@ host, it’s decrypted temporarily before being re-encrypted and forwarded. The 
 (typically 1 kB) of unencrypted data at any time and never stores the full stream. For extra security, you
 can encrypt your files or pipes before sending them through Beam.
 
-### Self Hosting
+## Self Hosting
 
 Hosting a beam server is a simple and lightweight affair. It doesn't depend on any services. You can build a
 binary of the server yourself, or, use the [docker image](https://hub.docker.com/repository/docker/ksdme/beam/general).
