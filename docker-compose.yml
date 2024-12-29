@@ -1,0 +1,21 @@
+services:
+  beam:
+    image: ksdme/beam:latest
+    command: beam --host-key-file /root/.ssh/id_beam_ed25519 --host beam.ssh.camp --bind-addr 0.0.0.0:2222
+    restart: unless-stopped
+    env_file: .env
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    volumes:
+      - "$HOME/.ssh/id_beam_ed25519:/root/.ssh/id_beam_ed25519:ro"
+    ports:
+      - "22:2222"
+
+  watch:
+    image: containrrr/watchtower
+    command:
+      - --cleanup=true
+      - --label-enable
+    restart: unless-stopped
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"

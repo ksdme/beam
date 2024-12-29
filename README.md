@@ -63,5 +63,6 @@ can encrypt your files or pipes before sending them through Beam.
 ## Self Hosting
 
 
-Hosting a beam server is a simple and lightweight affair. It doesn't depend on any services. You can build a
+Hosting a beam server is a simple and lightweight affair. It doesn't depend on any additional services. You can build a
 binary of the server yourself, or, use the [docker image](https://hub.docker.com/repository/docker/ksdme/beam/general).
+You can also find a docker compose configuration [here](./docker-compose.yml).
