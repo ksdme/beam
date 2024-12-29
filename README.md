@@ -1,3 +1,6 @@
+# Beam
+
+
 <p align="center">
     <img src="./assets/mast.png" width="100%" height="auto">
 </p>
@@ -7,7 +10,6 @@
 </p>
 
 <br/>
-
 
 ## Why SSH?
 
