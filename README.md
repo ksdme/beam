@@ -59,6 +59,10 @@ host, it’s decrypted temporarily before being re-encrypted and forwarded. The 
 (typically 1 kB) of unencrypted data at any time and never stores the full stream. For extra security, you
 can encrypt your files or pipes before sending them through Beam.
 
+- Some programs or system configuration may cause output buffering, preventing data from being sent to the pipe and
+reaching the beam SSH connection until the source flushes its buffer. For example, Python buffers stdout output by default.
+To avoid this, run Python with `python -u` or set `PYTHONUNBUFFERED=1`.
+
 
 ## Self Hosting
 
