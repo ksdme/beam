@@ -6,17 +6,20 @@
 </p>
 
 <p align="center">
-    transfer pipes and files from one computer to another over ssh
+    transfer pipes and files from one machine to another
 </p>
 
 ## Why SSH?
 
-Unlike [wormhole](https://github.com/magic-wormhole/magic-wormhole) or [portal](https://github.com/SpatiumPortae/portal), Beam is built
-on top of SSH. As a result, it has some advantages, including,
+Beam is essentially a special purpose SSH server. All it does is receive information on one connection and forwards it to another.
+This allows you to use Beam as a simple broker for streams over SSH. You can use it to transfer pipes, files and more.
 
-- 🚀 No binary installation, all you need is an ssh client
-- 🔒 Built in authentication
+Because Beam is built on top of SSH unlike [wormhole](https://github.com/magic-wormhole/magic-wormhole) or [portal](https://github.com/SpatiumPortae/portal), 
+it offers some advantages, including,
+
+- 🚀 No binary installation, all you need is an ssh client on both your machines
 - 📡 Support for transferring pipes, not just files
+- 🔒 Built in authentication
 
 
 ## How does it work?
