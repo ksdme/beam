@@ -45,7 +45,7 @@ isn't available on both the machines, you can use a random channel name. You can
 echo hello | ssh beam.ssh.camp send --random-channel
 ```
 
-For example, here's a demo forwarding a log file from one isolated machine to the other,
+For example, here's a demo forwarding a log file from one _isolated_ machine to the other,
 
 <video src="https://github.com/user-attachments/assets/6457ad1d-1bb7-4222-afc3-72b4fdbf2cc6" width="100%" height="auto" muted></video>
 
