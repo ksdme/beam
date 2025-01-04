@@ -9,7 +9,7 @@
     transfer pipes and files from one machine to another
 </p>
 
-## Why SSH?
+## What?
 
 Beam is essentially a special purpose SSH server. All it does is receive information on one connection and forwards it to another.
 This allows you to use Beam as a simple broker for streams over SSH. You can use it to transfer pipes, files and more.
