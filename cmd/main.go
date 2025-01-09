@@ -24,8 +24,8 @@ import (
 func handler(config *config.Config, engine *beam.Engine, s ssh.Session) {
 	// Block interactive calls.
 	if _, _, active := s.Pty(); active {
-		io.WriteString(s, "This server does not support interactive terminal sessions.\n")
-		s.Exit(1)
+		_, _ = io.WriteString(s, "This server does not support interactive terminal sessions.\n")
+		_ = s.Exit(1)
 		return
 	}
 
@@ -33,7 +33,7 @@ func handler(config *config.Config, engine *beam.Engine, s ssh.Session) {
 	// store that intent and return early if parsing arguments fail.
 	exited := false
 	exit := func(i int) {
-		s.Exit(i)
+		_ = s.Exit(i)
 		exited = true
 	}
 
@@ -61,7 +61,7 @@ func handler(config *config.Config, engine *beam.Engine, s ssh.Session) {
 	}, &args)
 	if err != nil {
 		slog.Error("could not initialize arg parser", "err", err)
-		io.WriteString(s.Stderr(), fmt.Sprintln("internal error"))
+		_, _ = io.WriteString(s.Stderr(), fmt.Sprintln("internal error"))
 		return
 	}
 
@@ -74,10 +74,16 @@ func handler(config *config.Config, engine *beam.Engine, s ssh.Session) {
 	}
 	if args.Send != nil {
 		if args.Send.BufferSize < 64 {
-			parser.FailSubcommand("buffer size needs to be between 512 and 65536", "send")
+			err = parser.FailSubcommand("buffer size needs to be between 512 and 65536", "send")
+			if err != nil {
+				return
+			}
 		}
 		if args.Send.BufferSize > 65536 {
-			parser.FailSubcommand("buffer size needs to be between 512 and 65536", "send")
+			err = parser.FailSubcommand("buffer size needs to be between 512 and 65536", "send")
+			if err != nil {
+				return
+			}
 		}
 	}
 	if exited {
@@ -91,7 +97,7 @@ func handler(config *config.Config, engine *beam.Engine, s ssh.Session) {
 		if err != nil {
 			slog.Debug("could not determine channel name", "err", err)
 			err = fmt.Errorf("could not connect to channel: %w", err)
-			io.WriteString(s.Stderr(), fmt.Sprintln(err.Error()))
+			_, _ = io.WriteString(s.Stderr(), fmt.Sprintln(err.Error()))
 			return
 		}
 
@@ -101,14 +107,14 @@ func handler(config *config.Config, engine *beam.Engine, s ssh.Session) {
 		channel, err := engine.AddSender(name, s, args.Send.BufferSize)
 		if err != nil {
 			err = fmt.Errorf("could not connect to channel: %w", err)
-			io.WriteString(s.Stderr(), fmt.Sprintln(err.Error()))
+			_, _ = io.WriteString(s.Stderr(), fmt.Sprintln(err.Error()))
 			return
 		}
 		if args.Send.Progress {
-			io.WriteString(s.Stderr(), fmt.Sprintf("<- connected to %s as sender\n\n", name))
+			_, _ = io.WriteString(s.Stderr(), fmt.Sprintf("<- connected to %s as sender\n\n", name))
 
 			if channel.Receiver == nil {
-				io.WriteString(
+				_, _ = io.WriteString(
 					s.Stderr(),
 					fmt.Sprintf(
 						"To receive this beam use:\n"+
@@ -129,7 +135,7 @@ func handler(config *config.Config, engine *beam.Engine, s ssh.Session) {
 			case err := <-channel.Sender.Done:
 				if args.Send.Progress {
 					if err == nil {
-						io.WriteString(
+						_, _ = io.WriteString(
 							s.Stderr(),
 							fmt.Sprintf(
 								"beaming up complete (%s)\n",
@@ -137,7 +143,7 @@ func handler(config *config.Config, engine *beam.Engine, s ssh.Session) {
 							),
 						)
 					} else {
-						io.WriteString(s.Stderr(), fmt.Sprintln(err.Error()))
+						_, _ = io.WriteString(s.Stderr(), fmt.Sprintln(err.Error()))
 					}
 				}
 				break sloop
@@ -148,12 +154,12 @@ func handler(config *config.Config, engine *beam.Engine, s ssh.Session) {
 			case <-time.After(200 * time.Millisecond):
 				if args.Send.Progress {
 					if channel.Started {
-						spin.Render(fmt.Sprintf(
+						_ = spin.Render(fmt.Sprintf(
 							"uploaded %s",
 							humanize.Bytes(channel.Sender.TotalBytes),
 						))
 					} else {
-						spin.Render("waiting for receiver")
+						_ = spin.Render("waiting for receiver")
 					}
 				}
 			}
@@ -166,7 +172,7 @@ func handler(config *config.Config, engine *beam.Engine, s ssh.Session) {
 			if err != nil {
 				slog.Debug("could not determine channel name", "err", err)
 				err = fmt.Errorf("could not connect to channel: %w", err)
-				io.WriteString(s.Stderr(), fmt.Sprintln(err.Error()))
+				_, _ = io.WriteString(s.Stderr(), fmt.Sprintln(err.Error()))
 				return
 			}
 		}
@@ -177,11 +183,11 @@ func handler(config *config.Config, engine *beam.Engine, s ssh.Session) {
 		channel, err := engine.AddReceiver(name, s, s.Stderr())
 		if err != nil {
 			err = fmt.Errorf("could not connect to channel: %w", err)
-			io.WriteString(s.Stderr(), fmt.Sprintln(err.Error()))
+			_, _ = io.WriteString(s.Stderr(), fmt.Sprintln(err.Error()))
 			return
 		}
 		if args.Receive.Progress {
-			io.WriteString(s.Stderr(), fmt.Sprintf("-> connected to %s as receiver\n\n", name))
+			_, _ = io.WriteString(s.Stderr(), fmt.Sprintf("-> connected to %s as receiver\n\n", name))
 		}
 
 		spin := spinner.NewSpinner(s.Stderr())
@@ -192,7 +198,7 @@ func handler(config *config.Config, engine *beam.Engine, s ssh.Session) {
 			case err := <-channel.Receiver.Done:
 				if args.Receive.Progress {
 					if err == nil {
-						io.WriteString(
+						_, _ = io.WriteString(
 							s.Stderr(),
 							fmt.Sprintf(
 								"beaming down complete (%s)\n",
@@ -200,7 +206,7 @@ func handler(config *config.Config, engine *beam.Engine, s ssh.Session) {
 							),
 						)
 					} else {
-						io.WriteString(s.Stderr(), fmt.Sprintln(err.Error()))
+						_, _ = io.WriteString(s.Stderr(), fmt.Sprintln(err.Error()))
 					}
 				}
 				break rloop
@@ -211,12 +217,12 @@ func handler(config *config.Config, engine *beam.Engine, s ssh.Session) {
 			case <-time.After(200 * time.Millisecond):
 				if args.Receive.Progress {
 					if channel.Started {
-						spin.Render(fmt.Sprintf(
+						_ = spin.Render(fmt.Sprintf(
 							"downloaded %s",
 							humanize.Bytes(channel.Receiver.TotalBytes),
 						))
 					} else {
-						spin.Render("waiting for sender")
+						_ = spin.Render("waiting for sender")
 					}
 				}
 			}
@@ -276,7 +282,10 @@ func run() error {
 			return true
 		},
 	}
-	ssh.HostKeyFile(config.HostKeyFile)(server)
+	err = ssh.HostKeyFile(config.HostKeyFile)(server)
+	if err != nil {
+		return fmt.Errorf("could not to hostkey to the server: %w", err)
+	}
 
 	slog.Info("listening", "addr", config.BindAddr)
 	if err = server.ListenAndServe(); err != nil {
