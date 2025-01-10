@@ -284,7 +284,7 @@ func run() error {
 	}
 	err = ssh.HostKeyFile(config.HostKeyFile)(server)
 	if err != nil {
-		return fmt.Errorf("could not to hostkey to the server: %w", err)
+		return fmt.Errorf("could not add hostkey to the server: %w", err)
 	}
 
 	slog.Info("listening", "addr", config.BindAddr)
